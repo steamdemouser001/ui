@@ -1,49 +1,36 @@
 export const siteConfig = {
-  name: "shadcn/ui",
-  url: "https://ui.shadcn.com",
-  ogImage: "https://ui.shadcn.com/og.jpg",
-  description:
-    "Composable, accessible components with thoughtful defaults. Build your own component library with code you can customize, extend, and make your own.",
-  links: {
-    twitter: "https://twitter.com/shadcn",
-    github: "https://github.com/shadcn-ui/ui",
-  },
+  name: "GEPA",
+  url: "http://localhost:4000",
+  ogImage: "http://localhost:4000/opengraph-image.png",
+  description: "基于反思性提示变异与帕累托选择的技能迭代控制台。",
   navItems: [
     {
-      href: "/",
-      label: "Home",
-    },
-    {
-      href: "/docs/installation",
-      label: "Docs",
-    },
-    {
-      href: "/docs/components",
-      label: "Components",
-    },
-    {
-      href: "/blocks",
-      label: "Blocks",
-    },
-    {
-      href: "/charts/area",
-      label: "Charts",
-    },
-    {
-      href: "/docs/directory",
-      label: "Directory",
-    },
-    {
-      href: "/typeset",
-      label: "Typeset",
-    },
-    {
       href: "/gepa",
-      label: "GEPA",
+      label: "概览",
     },
     {
-      href: "/create",
-      label: "Create",
+      href: "/gepa/tasks",
+      label: "任务",
+    },
+    {
+      href: "/gepa/monitor",
+      label: "监控",
+    },
+    {
+      href: "/gepa/llm",
+      label: "LLM",
+    },
+    {
+      href: "/gepa/agents",
+      label: "Agents",
+    },
+    {
+      href: "/gepa/constraints",
+      label: "约束",
+    },
+    {
+      href: "/gepa/settings",
+      label: "设置",
     },
   ],
 }
