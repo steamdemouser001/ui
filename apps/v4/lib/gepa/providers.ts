@@ -154,7 +154,9 @@ async function callOpenAiCompatible(
     inputTokens:
       usage?.prompt_tokens ??
       usage?.input_tokens ??
-      estimateTokens(options.messages.map((message) => message.content).join("\n")),
+      estimateTokens(
+        options.messages.map((message) => message.content).join("\n")
+      ),
     outputTokens:
       usage?.completion_tokens ?? usage?.output_tokens ?? estimateTokens(text),
   }
@@ -205,9 +207,10 @@ async function callAnthropic(
     text,
     inputTokens:
       payload.usage?.input_tokens ??
-      estimateTokens(options.messages.map((message) => message.content).join("\n")),
-    outputTokens:
-      payload.usage?.output_tokens ?? estimateTokens(text),
+      estimateTokens(
+        options.messages.map((message) => message.content).join("\n")
+      ),
+    outputTokens: payload.usage?.output_tokens ?? estimateTokens(text),
   }
 }
 

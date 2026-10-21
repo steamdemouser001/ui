@@ -92,7 +92,7 @@ export function ProviderModelSelect({
     const provider = providers.find((item) => item.id === next)
     const model = provider?.models.includes(value.model)
       ? value.model
-      : (provider?.defaultModel || provider?.models[0] || "")
+      : provider?.defaultModel || provider?.models[0] || ""
     onChange({ providerId: next, model })
   }
 
@@ -108,9 +108,7 @@ export function ProviderModelSelect({
     )
   }
   if (error) {
-    return (
-      <p className={cn("text-sm text-destructive", className)}>{error}</p>
-    )
+    return <p className={cn("text-sm text-destructive", className)}>{error}</p>
   }
   if (providers.length === 0) {
     return (

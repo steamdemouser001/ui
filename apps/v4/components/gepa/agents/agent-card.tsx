@@ -12,8 +12,8 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-import { ProviderModelSelect } from "@/components/gepa/provider-model-select"
 import type { AgentConfig, AgentId, LlmProvider } from "@/lib/gepa/types"
+import { ProviderModelSelect } from "@/components/gepa/provider-model-select"
 import { Badge } from "@/registry/new-york-v4/ui/badge"
 import { Button } from "@/registry/new-york-v4/ui/button"
 import {
@@ -63,10 +63,7 @@ export function agentToForm(agent: AgentConfig): AgentFormState {
   }
 }
 
-export function isFormDirty(
-  form: AgentFormState,
-  agent: AgentConfig
-): boolean {
+export function isFormDirty(form: AgentFormState, agent: AgentConfig): boolean {
   const base = agentToForm(agent)
   return (Object.keys(base) as (keyof AgentFormState)[]).some(
     (key) => base[key] !== form[key]
@@ -180,9 +177,7 @@ export function AgentCard({
               <p className="text-xs text-muted-foreground">范围 0 - 2</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor={`agent-${agent.id}-max-tokens`}>
-                最大 Token
-              </Label>
+              <Label htmlFor={`agent-${agent.id}-max-tokens`}>最大 Token</Label>
               <Input
                 id={`agent-${agent.id}-max-tokens`}
                 type="number"
@@ -240,12 +235,7 @@ export function AgentCard({
           更新于 {formatUpdatedAt(agent.updatedAt)}
         </span>
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={onReset}
-          >
+          <Button variant="outline" size="sm" disabled={busy} onClick={onReset}>
             {resetting ? (
               <Loader2Icon className="animate-spin" />
             ) : (
@@ -254,11 +244,7 @@ export function AgentCard({
             恢复默认
           </Button>
           <Button size="sm" disabled={busy || !dirty} onClick={onSave}>
-            {saving ? (
-              <Loader2Icon className="animate-spin" />
-            ) : (
-              <SaveIcon />
-            )}
+            {saving ? <Loader2Icon className="animate-spin" /> : <SaveIcon />}
             保存
           </Button>
         </div>

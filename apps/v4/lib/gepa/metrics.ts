@@ -93,6 +93,8 @@ export async function summarizeMetrics(): Promise<MetricsSummary> {
     (summary.outputTokens / 1_000_000) * settings.monitor.outputCostPerMillion
   summary.estimatedCost =
     Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000
-  summary.byDay = [...days.values()].sort((a, b) => a.date.localeCompare(b.date))
+  summary.byDay = [...days.values()].sort((a, b) =>
+    a.date.localeCompare(b.date)
+  )
   return summary
 }

@@ -11,13 +11,13 @@ import type {
   IterationDefaults,
   MonitorConfig,
 } from "@/lib/gepa/types"
-import { Alert, AlertDescription, AlertTitle } from "@/registry/new-york-v4/ui/alert"
-import { Button } from "@/registry/new-york-v4/ui/button"
 import {
-  Card,
-  CardContent,
-  CardHeader,
-} from "@/registry/new-york-v4/ui/card"
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/registry/new-york-v4/ui/alert"
+import { Button } from "@/registry/new-york-v4/ui/button"
+import { Card, CardContent, CardHeader } from "@/registry/new-york-v4/ui/card"
 import { Skeleton } from "@/registry/new-york-v4/ui/skeleton"
 
 import { ConfigTransfer } from "./config-transfer"

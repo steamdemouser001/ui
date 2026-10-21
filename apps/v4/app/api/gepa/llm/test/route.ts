@@ -31,8 +31,7 @@ export async function POST(request: Request) {
     } else {
       const baseUrl =
         typeof body.baseUrl === "string" ? body.baseUrl.trim() : ""
-      const apiKey =
-        typeof body.apiKey === "string" ? body.apiKey.trim() : ""
+      const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : ""
       if (!baseUrl) return fail("请填写 Base URL")
       if (!apiKey) return fail("请填写 API Key")
       const now = new Date().toISOString()

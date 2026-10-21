@@ -9,12 +9,7 @@ import {
   writeRunArtifact,
   writeTask,
 } from "./storage"
-import type {
-  RunLogEntry,
-  RunState,
-  TaskRecord,
-  TaskStatus,
-} from "./types"
+import type { RunLogEntry, RunState, TaskRecord, TaskStatus } from "./types"
 
 export interface StartRunOptions {
   budget?: number
@@ -85,10 +80,7 @@ async function syncTask(task: TaskRecord, run: RunState): Promise<void> {
 function applyOptions(task: TaskRecord, options: StartRunOptions): boolean {
   let changed = false
   if (options.budget !== undefined) {
-    task.iteration.budget = toPositiveInt(
-      options.budget,
-      task.iteration.budget
-    )
+    task.iteration.budget = toPositiveInt(options.budget, task.iteration.budget)
     changed = true
   }
   if (options.minibatchSize !== undefined) {
@@ -161,9 +153,8 @@ async function writeIterationArtifact(
     paretoFrontier: run.paretoFrontier,
     budgetUsed: run.budgetUsed,
     candidate:
-      run.candidates.find(
-        (candidate) => candidate.id === record.candidateId
-      ) ?? null,
+      run.candidates.find((candidate) => candidate.id === record.candidateId) ??
+      null,
   })
 }
 
@@ -197,11 +188,7 @@ async function finishRun(
 ): Promise<void> {
   if (run.status !== status) {
     run.status = status
-    addLog(
-      run,
-      status === "completed" ? "success" : "info",
-      message
-    )
+    addLog(run, status === "completed" ? "success" : "info", message)
   }
   if (status === "completed" || status === "stopped") {
     run.finishedAt = run.finishedAt ?? nowIso()
@@ -347,7 +334,6 @@ async function startRunInternal(
   taskId: string,
   options: StartRunOptions
 ): Promise<RunState> {
-
   const task = await requireTask(taskId)
   if (applyOptions(task, options)) {
     task.updatedAt = nowIso()

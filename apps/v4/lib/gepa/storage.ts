@@ -3,7 +3,11 @@ import type { Dirent } from "node:fs"
 import { promises as fs } from "node:fs"
 import path from "node:path"
 
-import { createDefaultAgents, createDefaultSettings, DEFAULT_ITERATION } from "./defaults"
+import {
+  createDefaultAgents,
+  createDefaultSettings,
+  DEFAULT_ITERATION,
+} from "./defaults"
 import type {
   AgentConfig,
   AgentId,
@@ -77,7 +81,10 @@ export async function readJson<T>(relative: string, fallback: T): Promise<T> {
   }
 }
 
-export async function writeJson(relative: string, value: unknown): Promise<void> {
+export async function writeJson(
+  relative: string,
+  value: unknown
+): Promise<void> {
   const file = dataPath(relative)
   await ensureDir(path.dirname(file))
   const temp = `${file}.${process.pid}.${randomUUID()}.tmp`
@@ -236,7 +243,9 @@ export async function readProviders(): Promise<LlmProvider[]> {
 }
 
 export async function writeProviders(providers: LlmProvider[]): Promise<void> {
-  await withLock("providers", () => writeJson("config/providers.json", providers))
+  await withLock("providers", () =>
+    writeJson("config/providers.json", providers)
+  )
 }
 
 export async function getProvider(id: string): Promise<LlmProvider | null> {
@@ -351,7 +360,10 @@ export async function listTasks(): Promise<TaskRecord[]> {
 
 export async function readTask(id: string): Promise<TaskRecord | null> {
   const taskId = assertSafeId(id, "taskId")
-  const meta = await readJson<TaskMeta | null>(taskFile(taskId, "task.json"), null)
+  const meta = await readJson<TaskMeta | null>(
+    taskFile(taskId, "task.json"),
+    null
+  )
   if (!meta) return null
   const modules = await readJson<SkillModule[]>(
     taskFile(taskId, "skill.json"),

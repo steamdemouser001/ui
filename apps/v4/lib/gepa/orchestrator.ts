@@ -119,8 +119,7 @@ function formatRun(run: RunState | null): string {
     run.candidates.find((candidate) => candidate.id === run.bestCandidateId) ??
     null
   const bestScore =
-    typeof best?.averageScore === "number" &&
-    Number.isFinite(best.averageScore)
+    typeof best?.averageScore === "number" && Number.isFinite(best.averageScore)
       ? best.averageScore.toFixed(3)
       : null
   const logs = run.logs
@@ -137,9 +136,7 @@ function formatRun(run: RunState | null): string {
     `预算：已用 ${run.budgetUsed} / ${run.budget}`,
     `候选：${run.candidates.length} 个`,
     `最佳候选：${
-      best && bestScore !== null
-        ? `${best.id}（平均分 ${bestScore}）`
-        : "暂无"
+      best && bestScore !== null ? `${best.id}（平均分 ${bestScore}）` : "暂无"
     }`,
     `帕累托前沿：${
       run.paretoFrontier.length > 0 ? run.paretoFrontier.join("、") : "暂无"
@@ -174,10 +171,7 @@ function formatHistory(messages: OrchestratorMessage[]): string {
     .join("\n")
 }
 
-function requireNumber(
-  value: unknown,
-  label: string
-): number {
+function requireNumber(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new Error(`${label}必须是数字`)
   }
@@ -211,7 +205,11 @@ async function executeAction(
       case "pause": {
         const run = await pauseRun(taskId)
         context.run = run
-        return result(type, true, `已请求暂停（${run.id}），将在当前轮次结束后生效`)
+        return result(
+          type,
+          true,
+          `已请求暂停（${run.id}），将在当前轮次结束后生效`
+        )
       }
       case "stop": {
         const run = await stopRun(taskId)
@@ -245,10 +243,7 @@ async function executeAction(
           throw new Error("setMinibatch 缺少 minibatchSize 参数")
         }
         const iteration = sanitizeIteration(context.task.iteration, {
-          minibatchSize: requireNumber(
-            action.minibatchSize,
-            "minibatch 大小"
-          ),
+          minibatchSize: requireNumber(action.minibatchSize, "minibatch 大小"),
         })
         context.task.iteration = iteration
         context.task.updatedAt = nowIso()
@@ -264,10 +259,7 @@ async function executeAction(
           throw new Error("setIterationLimit 缺少 maxIterations 参数")
         }
         const iteration = sanitizeIteration(context.task.iteration, {
-          maxIterations: requireNumber(
-            action.maxIterations,
-            "最大迭代轮数"
-          ),
+          maxIterations: requireNumber(action.maxIterations, "最大迭代轮数"),
         })
         context.task.iteration = iteration
         context.task.updatedAt = nowIso()

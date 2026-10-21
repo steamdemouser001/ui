@@ -7,9 +7,12 @@ export function renderPrompt(
   template: string,
   variables: Record<string, string>
 ): string {
-  return template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, name: string) => {
-    return variables[name] ?? ""
-  })
+  return template.replace(
+    /\{\{\s*([\w.-]+)\s*\}\}/g,
+    (_match, name: string) => {
+      return variables[name] ?? ""
+    }
+  )
 }
 
 function estimateTokens(text: string): number {

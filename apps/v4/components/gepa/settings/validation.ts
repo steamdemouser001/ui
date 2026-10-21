@@ -441,8 +441,7 @@ function parseToolImport(
 ): Partial<ToolConstraints> {
   const unknown = findUnknownKeys(record, TOOL_KEYS)
   if (unknown.length > 0) {
-    errors["constraints.tools"] =
-      `tools 包含未知字段：${unknown.join("、")}`
+    errors["constraints.tools"] = `tools 包含未知字段：${unknown.join("、")}`
   }
   const result: Partial<ToolConstraints> = {}
 
@@ -518,8 +517,7 @@ function parseBashImport(
 ): Partial<BashConstraints> {
   const unknown = findUnknownKeys(record, BASH_KEYS)
   if (unknown.length > 0) {
-    errors["constraints.bash"] =
-      `bash 包含未知字段：${unknown.join("、")}`
+    errors["constraints.bash"] = `bash 包含未知字段：${unknown.join("、")}`
   }
   const result: Partial<BashConstraints> = {}
 

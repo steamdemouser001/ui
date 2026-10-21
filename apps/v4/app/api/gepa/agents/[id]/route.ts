@@ -28,9 +28,7 @@ export async function PATCH(
     }
     if (body.description !== undefined) {
       patch.description =
-        typeof body.description === "string"
-          ? body.description.trim()
-          : ""
+        typeof body.description === "string" ? body.description.trim() : ""
     }
     if (body.enabled !== undefined) {
       if (typeof body.enabled !== "boolean") {
@@ -59,11 +57,7 @@ export async function PATCH(
     }
     if (body.temperature !== undefined) {
       const temperature = Number(body.temperature)
-      if (
-        !Number.isFinite(temperature) ||
-        temperature < 0 ||
-        temperature > 2
-      ) {
+      if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
         return fail("temperature 必须在 0 到 2 之间")
       }
       patch.temperature = temperature

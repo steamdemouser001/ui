@@ -7,10 +7,7 @@ import type {
   TaskRecord,
   TaskStatus,
 } from "@/lib/gepa/types"
-import type {
-  WorkspaceEntry,
-  WorkspaceSummary,
-} from "@/lib/gepa/workspace"
+import type { WorkspaceEntry, WorkspaceSummary } from "@/lib/gepa/workspace"
 
 export interface RunSummary {
   id: string

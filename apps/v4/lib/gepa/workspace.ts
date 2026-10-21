@@ -71,13 +71,17 @@ export function resolveWorkspaceFile(
     throw new WorkspacePathError("文件路径包含非法字符")
   }
   if (/^[a-zA-Z]:/.test(raw)) {
-    throw new WorkspacePathError("文件路径不能包含盘符，请使用工作空间内的相对路径")
+    throw new WorkspacePathError(
+      "文件路径不能包含盘符，请使用工作空间内的相对路径"
+    )
   }
   if (raw.startsWith("~")) {
     throw new WorkspacePathError("文件路径不能以 ~ 开头")
   }
   if (/^[\\/]/.test(raw)) {
-    throw new WorkspacePathError("文件路径必须是工作空间内的相对路径，不能是绝对路径")
+    throw new WorkspacePathError(
+      "文件路径必须是工作空间内的相对路径，不能是绝对路径"
+    )
   }
 
   const segments = raw
@@ -226,7 +230,9 @@ export async function readWorkspaceFile(
     throw error
   }
   if (stat.isDirectory()) {
-    throw new WorkspacePathError(`目标是目录，无法作为文件读取：${relativePath}`)
+    throw new WorkspacePathError(
+      `目标是目录，无法作为文件读取：${relativePath}`
+    )
   }
   if (stat.size > MAX_WORKSPACE_FILE_BYTES) {
     throw new WorkspacePathError(

@@ -11,11 +11,7 @@ import { toast } from "sonner"
 
 import { apiGet } from "@/lib/gepa/client"
 import { createDefaultSettings } from "@/lib/gepa/defaults"
-import type {
-  AgentConfig,
-  GlobalSettings,
-  LlmProvider,
-} from "@/lib/gepa/types"
+import type { AgentConfig, GlobalSettings, LlmProvider } from "@/lib/gepa/types"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -117,9 +113,7 @@ export function ConfigTransfer({
     }
   }
 
-  async function handleFileChange(
-    event: React.ChangeEvent<HTMLInputElement>
-  ) {
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     event.target.value = ""
     if (!file) return
@@ -281,9 +275,7 @@ export function ConfigTransfer({
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel disabled={resetting}>
-                  取消
-                </AlertDialogCancel>
+                <AlertDialogCancel disabled={resetting}>取消</AlertDialogCancel>
                 <AlertDialogAction
                   disabled={resetting}
                   onClick={(event) => {

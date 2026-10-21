@@ -210,7 +210,10 @@ export const DEFAULT_AGENTS: AgentConfig[] = DEFAULT_AGENT_DEFINITIONS.map(
 
 export function createDefaultAgents(): AgentConfig[] {
   const now = new Date().toISOString()
-  return DEFAULT_AGENT_DEFINITIONS.map((agent) => ({ ...agent, updatedAt: now }))
+  return DEFAULT_AGENT_DEFINITIONS.map((agent) => ({
+    ...agent,
+    updatedAt: now,
+  }))
 }
 
 export function createDefaultSettings(): GlobalSettings {

@@ -148,7 +148,8 @@ export function DatasetTab({ taskId, task, onRefresh }: DatasetTabProps) {
             {dirty && <Badge variant="secondary">未保存</Badge>}
           </h2>
           <p className="text-sm text-muted-foreground">
-            共 {examples.length} 条示例（上限 {MAX_DATASET_EXAMPLES} 条）。期望输出用于评估器打分，可留空。
+            共 {examples.length} 条示例（上限 {MAX_DATASET_EXAMPLES}{" "}
+            条）。期望输出用于评估器打分，可留空。
           </p>
         </div>
         <div className="flex gap-2">
@@ -157,11 +158,7 @@ export function DatasetTab({ taskId, task, onRefresh }: DatasetTabProps) {
             添加示例
           </Button>
           <Button onClick={() => void handleSave()} disabled={saving || !dirty}>
-            {saving ? (
-              <Loader2Icon className="animate-spin" />
-            ) : (
-              <SaveIcon />
-            )}
+            {saving ? <Loader2Icon className="animate-spin" /> : <SaveIcon />}
             保存
           </Button>
         </div>
@@ -174,7 +171,8 @@ export function DatasetTab({ taskId, task, onRefresh }: DatasetTabProps) {
             批量导入
           </CardTitle>
           <CardDescription>
-            支持 JSON 数组、JSONL（每行一个 JSON 对象）或纯文本（每行一条示例）。导入内容会追加到现有列表。
+            支持 JSON 数组、JSONL（每行一个 JSON
+            对象）或纯文本（每行一条示例）。导入内容会追加到现有列表。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

@@ -129,8 +129,7 @@ export function sampleIds(
   const pool = [...ids]
   const target = Math.min(Math.max(0, Math.trunc(count)), pool.length)
   for (let index = 0; index < target; index += 1) {
-    const swapIndex =
-      index + Math.floor(rng() * (pool.length - index))
+    const swapIndex = index + Math.floor(rng() * (pool.length - index))
     const current = pool[index]
     pool[index] = pool[swapIndex]
     pool[swapIndex] = current
@@ -433,10 +432,8 @@ export async function evaluateExample(
     const data = parseJsonLoose<EvaluatorPayload | null>(raw)
     return {
       score: clamp01(Number(data?.score)),
-      feedback:
-        typeof data?.feedback === "string" ? data.feedback : "",
-      passed:
-        typeof data?.passed === "boolean" ? data.passed : undefined,
+      feedback: typeof data?.feedback === "string" ? data.feedback : "",
+      passed: typeof data?.passed === "boolean" ? data.passed : undefined,
     }
   } catch {
     return { score: 0, feedback: truncate(raw, 500) }
@@ -505,8 +502,7 @@ export async function reflectModule(
   }
   return {
     newPrompt,
-    reasoning:
-      typeof data?.reasoning === "string" ? data.reasoning.trim() : "",
+    reasoning: typeof data?.reasoning === "string" ? data.reasoning.trim() : "",
   }
 }
 
@@ -702,11 +698,7 @@ export async function runIteration(
   }
 
   // 3. 帕累托选择父代，并按策略选择要变异的模块。
-  const parent = selectCandidatePareto(
-    state.candidates,
-    state.paretoSplit,
-    rng
-  )
+  const parent = selectCandidatePareto(state.candidates, state.paretoSplit, rng)
   if (!parent) {
     finish("completed", "没有可用候选，运行结束", "warning")
     return state
@@ -861,13 +853,10 @@ export async function runIteration(
     )
     for (const example of remainingParetoExamples) {
       if (budget.used >= budget.limit || shouldStop()) break
-      const { results } = await executeCandidate(
-        task,
-        child,
-        [example],
-        meta,
-        { budget, shouldStop }
-      )
+      const { results } = await executeCandidate(task, child, [example], meta, {
+        budget,
+        shouldStop,
+      })
       if (results.length === 0) break
       const [trace] = await evaluateResults(
         task,
@@ -913,9 +902,7 @@ export async function runIteration(
     beforeScore,
     afterScore,
     accepted,
-    reflection:
-      reflection.reasoning ||
-      `已更新模块「${module.name}」的提示词`,
+    reflection: reflection.reasoning || `已更新模块「${module.name}」的提示词`,
     traces: beforeTraces,
     startedAt,
     finishedAt: nowIso(),

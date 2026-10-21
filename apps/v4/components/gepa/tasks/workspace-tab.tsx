@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { cn } from "cn"
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
@@ -13,12 +14,15 @@ import {
   TerminalIcon,
   Undo2Icon,
 } from "lucide-react"
-import { cn } from "cn"
 import { toast } from "sonner"
 
 import { apiGet, apiPost } from "@/lib/gepa/client"
 import type { SandboxResult } from "@/lib/gepa/sandbox"
-import { Alert, AlertDescription, AlertTitle } from "@/registry/new-york-v4/ui/alert"
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/registry/new-york-v4/ui/alert"
 import { Badge } from "@/registry/new-york-v4/ui/badge"
 import { Button } from "@/registry/new-york-v4/ui/button"
 import {
@@ -39,10 +43,7 @@ import {
   formatDateTime,
   formatDuration,
 } from "./format"
-import type {
-  WorkspaceContentResponse,
-  WorkspaceFilesResponse,
-} from "./types"
+import type { WorkspaceContentResponse, WorkspaceFilesResponse } from "./types"
 
 const MAX_OUTPUT_CHARS = 20_000
 
@@ -113,7 +114,7 @@ function SandboxResultPanel({ result }: { result: SandboxResult }) {
 
       <p className="text-sm break-words">{result.reason}</p>
 
-      <div className="break-all text-xs text-muted-foreground">
+      <div className="text-xs break-all text-muted-foreground">
         工作目录：
         <span className="font-mono text-foreground">{result.cwd || "—"}</span>
       </div>
@@ -188,10 +189,10 @@ export function WorkspaceTab({ taskId }: { taskId: string }) {
     if (!selectedPath) return
     setSaving(true)
     try {
-      await apiPost<{ path: string }>(
-        `/api/gepa/tasks/${taskId}/workspace`,
-        { path: selectedPath, content }
-      )
+      await apiPost<{ path: string }>(`/api/gepa/tasks/${taskId}/workspace`, {
+        path: selectedPath,
+        content,
+      })
       setSavedContent(content)
       toast.success(`已保存 ${selectedPath}`)
       void loadFiles(true)

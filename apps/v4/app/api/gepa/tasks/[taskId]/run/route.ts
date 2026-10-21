@@ -26,10 +26,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function optionalNumber(
-  value: unknown,
-  label: string
-): number | undefined {
+function optionalNumber(value: unknown, label: string): number | undefined {
   if (value === undefined || value === null) return undefined
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new Error(`${label}必须是数字`)

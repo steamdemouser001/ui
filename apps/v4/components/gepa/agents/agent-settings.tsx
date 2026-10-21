@@ -11,13 +11,18 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { apiGet, apiPatch, apiPost } from "@/lib/gepa/client"
+import type { AgentConfig, AgentId, LlmProvider } from "@/lib/gepa/types"
 import {
   AgentCard,
   agentToForm,
   type AgentFormState,
 } from "@/components/gepa/agents/agent-card"
-import { apiGet, apiPatch, apiPost } from "@/lib/gepa/client"
-import type { AgentConfig, AgentId, LlmProvider } from "@/lib/gepa/types"
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/registry/new-york-v4/ui/alert"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,11 +33,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/registry/new-york-v4/ui/alert-dialog"
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/registry/new-york-v4/ui/alert"
 import { Button } from "@/registry/new-york-v4/ui/button"
 import { Card, CardContent } from "@/registry/new-york-v4/ui/card"
 import { Skeleton } from "@/registry/new-york-v4/ui/skeleton"
@@ -57,9 +57,7 @@ export function AgentSettings() {
   const [error, setError] = React.useState<string | null>(null)
   const [savingId, setSavingId] = React.useState<AgentId | null>(null)
   const [resettingId, setResettingId] = React.useState<AgentId | null>(null)
-  const [resetTarget, setResetTarget] = React.useState<AgentConfig | null>(
-    null
-  )
+  const [resetTarget, setResetTarget] = React.useState<AgentConfig | null>(null)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -109,20 +107,12 @@ export function AgentSettings() {
       return
     }
     const temperature = Number(form.temperature)
-    if (
-      !Number.isFinite(temperature) ||
-      temperature < 0 ||
-      temperature > 2
-    ) {
+    if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
       toast.error("Temperature 必须在 0 到 2 之间")
       return
     }
     const maxTokens = Number(form.maxTokens)
-    if (
-      !Number.isInteger(maxTokens) ||
-      maxTokens < 256 ||
-      maxTokens > 32768
-    ) {
+    if (!Number.isInteger(maxTokens) || maxTokens < 256 || maxTokens > 32768) {
       toast.error("最大 Token 必须是 256 到 32768 之间的整数")
       return
     }
@@ -290,7 +280,8 @@ export function AgentSettings() {
           <AlertDialogHeader>
             <AlertDialogTitle>恢复默认配置</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要将「{resetTarget?.name}」的提示词、模型与生成参数恢复为默认值吗？未保存的修改将丢失，此操作不可撤销。
+              确定要将「{resetTarget?.name}
+              」的提示词、模型与生成参数恢复为默认值吗？未保存的修改将丢失，此操作不可撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

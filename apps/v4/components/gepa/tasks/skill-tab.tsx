@@ -157,7 +157,8 @@ export function SkillTab({ taskId, task, onRefresh }: SkillTabProps) {
             {dirty && <Badge variant="secondary">未保存</Badge>}
           </h2>
           <p className="text-sm text-muted-foreground">
-            共 {modules.length} 个模块。GEPA 会按顺序执行模块，并逐轮改进其中一个模块的提示词。
+            共 {modules.length} 个模块。GEPA
+            会按顺序执行模块，并逐轮改进其中一个模块的提示词。
           </p>
         </div>
         <div className="flex gap-2">
@@ -166,11 +167,7 @@ export function SkillTab({ taskId, task, onRefresh }: SkillTabProps) {
             添加模块
           </Button>
           <Button onClick={() => void handleSave()} disabled={saving || !dirty}>
-            {saving ? (
-              <Loader2Icon className="animate-spin" />
-            ) : (
-              <SaveIcon />
-            )}
+            {saving ? <Loader2Icon className="animate-spin" /> : <SaveIcon />}
             保存
           </Button>
         </div>

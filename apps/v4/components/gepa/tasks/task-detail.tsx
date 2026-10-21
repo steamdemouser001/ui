@@ -17,13 +17,13 @@ import { toast } from "sonner"
 
 import { apiGet, apiPost } from "@/lib/gepa/client"
 import type { RunState } from "@/lib/gepa/types"
-import { Alert, AlertDescription, AlertTitle } from "@/registry/new-york-v4/ui/alert"
-import { Button } from "@/registry/new-york-v4/ui/button"
 import {
-  Card,
-  CardContent,
-  CardHeader,
-} from "@/registry/new-york-v4/ui/card"
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/registry/new-york-v4/ui/alert"
+import { Button } from "@/registry/new-york-v4/ui/button"
+import { Card, CardContent, CardHeader } from "@/registry/new-york-v4/ui/card"
 import { Progress } from "@/registry/new-york-v4/ui/progress"
 import { Skeleton } from "@/registry/new-york-v4/ui/skeleton"
 import {
@@ -89,9 +89,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
         setError(null)
       }
       try {
-        const data = await apiGet<TaskDetailData>(
-          `/api/gepa/tasks/${taskId}`
-        )
+        const data = await apiGet<TaskDetailData>(`/api/gepa/tasks/${taskId}`)
         // 只应用最新一次请求，避免轮询与手动刷新互相覆盖。
         if (requestId !== requestSeq.current) return
         setDetail(data)
@@ -179,11 +177,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
           <AlertDescription>
             <p>{error ?? "任务不存在或已被删除"}</p>
             <div className="mt-2 flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void load()}
-              >
+              <Button variant="outline" size="sm" onClick={() => void load()}>
                 重试
               </Button>
               <Button asChild variant="outline" size="sm">
@@ -326,10 +320,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                 label="迭代"
                 value={`${run?.iteration ?? 0} / ${task.iteration.maxIterations}`}
               />
-              <HeaderStat
-                label="预算"
-                value={`${budgetUsed} / ${budget}`}
-              />
+              <HeaderStat label="预算" value={`${budgetUsed} / ${budget}`} />
               <HeaderStat
                 label="最佳分"
                 value={formatScore(bestCandidate?.averageScore)}
@@ -380,11 +371,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
           <RunTab detail={detail} />
         </TabsContent>
         <TabsContent value="skill">
-          <SkillTab
-            taskId={taskId}
-            task={task}
-            onRefresh={() => load(true)}
-          />
+          <SkillTab taskId={taskId} task={task} onRefresh={() => load(true)} />
         </TabsContent>
         <TabsContent value="dataset">
           <DatasetTab

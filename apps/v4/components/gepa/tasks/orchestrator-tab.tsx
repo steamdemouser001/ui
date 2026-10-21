@@ -60,9 +60,7 @@ function MessageBubble({ message }: { message: OrchestratorMessage }) {
       )}
       <div
         className={`max-w-[85%] space-y-2 rounded-lg px-3 py-2 text-sm ${
-          isUser
-            ? "bg-primary text-primary-foreground"
-            : "border bg-muted/40"
+          isUser ? "bg-primary text-primary-foreground" : "border bg-muted/40"
         }`}
       >
         <p className="break-words whitespace-pre-wrap">{message.content}</p>
@@ -85,7 +83,10 @@ function MessageBubble({ message }: { message: OrchestratorMessage }) {
               {actions
                 .filter((action) => action.message)
                 .map((action, index) => (
-                  <li key={`${action.type}-msg-${index}`} className="break-words">
+                  <li
+                    key={`${action.type}-msg-${index}`}
+                    className="break-words"
+                  >
                     {actionLabel(action.type)}：{action.message}
                   </li>
                 ))}
@@ -232,7 +233,8 @@ export function OrchestratorTab({
               </div>
               <p className="text-sm font-medium">开始与总控对话</p>
               <p className="max-w-sm text-sm text-muted-foreground">
-                例如：「开始运行」「把预算改成 100」「暂停」「把主技能的提示词改得更简洁」。
+                例如：「开始运行」「把预算改成
+                100」「暂停」「把主技能的提示词改得更简洁」。
               </p>
             </div>
           ) : (

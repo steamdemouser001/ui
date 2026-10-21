@@ -108,7 +108,12 @@ export function TaskCreateDialog({
     let maxIterations: number
     try {
       budget = parseIntInRange(form.budget, 1, 10000, "预算")
-      minibatchSize = parseIntInRange(form.minibatchSize, 1, 50, "minibatch 大小")
+      minibatchSize = parseIntInRange(
+        form.minibatchSize,
+        1,
+        50,
+        "minibatch 大小"
+      )
       maxIterations = parseIntInRange(
         form.maxIterations,
         1,

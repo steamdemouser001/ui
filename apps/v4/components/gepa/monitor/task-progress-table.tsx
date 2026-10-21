@@ -94,9 +94,7 @@ function TaskRow({ task }: { task: TaskProgress }) {
     <TableRow>
       <TableCell className="min-w-40">
         <div className="font-medium">{task.name}</div>
-        <div className="font-mono text-xs text-muted-foreground">
-          {task.id}
-        </div>
+        <div className="font-mono text-xs text-muted-foreground">{task.id}</div>
       </TableCell>
       <TableCell>
         <StatusBadge status={task.status} />

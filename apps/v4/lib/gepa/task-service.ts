@@ -4,13 +4,13 @@ import path from "node:path"
 
 import { isRunActive } from "./run-manager"
 import {
-  deleteTask as removeTask,
   ensureDir,
   listRuns,
   listTasks,
   readOrchestratorMessages,
   readSettings,
   readTask,
+  deleteTask as removeTask,
   workspacePath,
   writeTask,
 } from "./storage"
@@ -332,9 +332,7 @@ function normalizeModules(input: unknown): SkillModule[] {
           ? record.name.trim()
           : `模块 ${index + 1}`,
       description:
-        typeof record.description === "string"
-          ? record.description.trim()
-          : "",
+        typeof record.description === "string" ? record.description.trim() : "",
       prompt,
     }
   })

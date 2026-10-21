@@ -41,9 +41,7 @@ import { parseIterationDraft, parseMonitorDraft } from "./validation"
 interface SettingsFormProps {
   settings: GlobalSettings
   savingAction: SettingsAction | null
-  onSaveIteration: (
-    value: IterationDefaults
-  ) => Promise<GlobalSettings | null>
+  onSaveIteration: (value: IterationDefaults) => Promise<GlobalSettings | null>
   onSaveMonitor: (value: MonitorConfig) => Promise<GlobalSettings | null>
 }
 
@@ -297,9 +295,7 @@ export function SettingsForm({
               value={draft.inputCostPerMillion}
               error={monitorErrors.inputCostPerMillion}
               disabled={busy}
-              onChange={(value) =>
-                updateField("inputCostPerMillion", value)
-              }
+              onChange={(value) => updateField("inputCostPerMillion", value)}
             />
             <NumberField
               id="settings-output-cost"
@@ -308,9 +304,7 @@ export function SettingsForm({
               value={draft.outputCostPerMillion}
               error={monitorErrors.outputCostPerMillion}
               disabled={busy}
-              onChange={(value) =>
-                updateField("outputCostPerMillion", value)
-              }
+              onChange={(value) => updateField("outputCostPerMillion", value)}
             />
             <NumberField
               id="settings-retention"

@@ -80,8 +80,10 @@ export function DataCard({ dataRoot, error, onRetry }: DataCardProps) {
         <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
           <li>
             默认目录为应用工作目录下的{" "}
-            <code className="font-mono text-xs">.gepa-data</code>，可通过环境变量{" "}
-            <code className="font-mono text-xs">GEPA_DATA_DIR</code> 指定其他位置。
+            <code className="font-mono text-xs">.gepa-data</code>
+            ，可通过环境变量{" "}
+            <code className="font-mono text-xs">GEPA_DATA_DIR</code>{" "}
+            指定其他位置。
           </li>
           <li>
             配置、任务工作空间、运行记录与 LLM 调用指标均以 JSON / JSONL

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { cn } from "cn"
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
@@ -13,10 +14,14 @@ import {
   ZapIcon,
 } from "lucide-react"
 import { toast } from "sonner"
-import { cn } from "cn"
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/gepa/client"
 import type { LlmProvider, LlmProviderKind } from "@/lib/gepa/types"
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/registry/new-york-v4/ui/alert"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,7 +32,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/registry/new-york-v4/ui/alert-dialog"
-import { Alert, AlertDescription, AlertTitle } from "@/registry/new-york-v4/ui/alert"
 import { Badge } from "@/registry/new-york-v4/ui/badge"
 import { Button } from "@/registry/new-york-v4/ui/button"
 import {
@@ -388,7 +392,9 @@ export function LlmSettings() {
                             ? "Anthropic"
                             : "OpenAI 兼容"}
                         </Badge>
-                        <Badge variant={provider.enabled ? "secondary" : "outline"}>
+                        <Badge
+                          variant={provider.enabled ? "secondary" : "outline"}
+                        >
                           {provider.enabled ? "已启用" : "已停用"}
                         </Badge>
                       </CardDescription>
@@ -625,10 +631,7 @@ export function LlmSettings() {
                     }))
                   }
                 >
-                  <SelectTrigger
-                    id="provider-default-model"
-                    className="w-full"
-                  >
+                  <SelectTrigger id="provider-default-model" className="w-full">
                     <SelectValue placeholder="请先填写模型列表" />
                   </SelectTrigger>
                   <SelectContent>

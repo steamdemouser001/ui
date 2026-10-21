@@ -99,9 +99,7 @@ function LogList({ detail }: { detail: TaskDetailData }) {
                     <span className="font-mono text-xs text-muted-foreground">
                       {formatClock(log.at)}
                     </span>
-                    <span
-                      className={`text-xs font-medium ${meta.className}`}
-                    >
+                    <span className={`text-xs font-medium ${meta.className}`}>
                       {meta.label}
                     </span>
                     {log.iteration !== undefined && (
@@ -140,7 +138,8 @@ function IterationTable({
           迭代记录
         </CardTitle>
         <CardDescription>
-          共 {iterations.length} 轮迭代，最新在前。改进后为空表示该轮未完成子代评估。
+          共 {iterations.length}{" "}
+          轮迭代，最新在前。改进后为空表示该轮未完成子代评估。
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -262,7 +261,10 @@ function CandidateDialog({
                   <div key={module.id} className="rounded-md border p-3">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <span className="text-sm font-medium">{module.name}</span>
-                      <Badge variant="outline" className="font-mono text-[10px]">
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-[10px]"
+                      >
                         {module.id}
                       </Badge>
                     </div>
@@ -356,10 +358,7 @@ export function RunTab({ detail }: { detail: TaskDetailData }) {
               value={formatScore(best?.averageScore)}
               hint={run.bestCandidateId ?? undefined}
             />
-            <StatCell
-              label="帕累托前沿"
-              value={run.paretoFrontier.length}
-            />
+            <StatCell label="帕累托前沿" value={run.paretoFrontier.length} />
             <StatCell
               label="开始时间"
               value={
@@ -440,9 +439,7 @@ export function RunTab({ detail }: { detail: TaskDetailData }) {
                         {candidate.id}
                       </span>
                       {isBest && <Badge>最佳</Badge>}
-                      {inFrontier && (
-                        <Badge variant="secondary">帕累托</Badge>
-                      )}
+                      {inFrontier && <Badge variant="secondary">帕累托</Badge>}
                       <ChevronRightIcon className="ml-auto size-4 text-muted-foreground" />
                     </div>
                     <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-muted-foreground">

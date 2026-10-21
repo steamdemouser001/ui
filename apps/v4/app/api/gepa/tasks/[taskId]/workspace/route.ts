@@ -3,9 +3,9 @@ import { readTask } from "@/lib/gepa/storage"
 import {
   listWorkspaceFiles,
   readWorkspaceFile,
-  workspaceSummary,
   WorkspacePathError,
   WorkspacePolicyError,
+  workspaceSummary,
   writeWorkspaceFile,
 } from "@/lib/gepa/workspace"
 

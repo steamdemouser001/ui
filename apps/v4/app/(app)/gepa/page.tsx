@@ -115,9 +115,7 @@ export default function GepaOverviewPage() {
                     </span>
                     <ArrowRightIcon className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                   </div>
-                  <CardTitle className="pt-1 text-base">
-                    {item.title}
-                  </CardTitle>
+                  <CardTitle className="pt-1 text-base">{item.title}</CardTitle>
                   <CardDescription>{item.description}</CardDescription>
                 </CardHeader>
               </Card>
@@ -161,8 +159,10 @@ export default function GepaOverviewPage() {
             Mutation）与帕累托选择（Pareto Selection）。
           </p>
           <p>
-            每一轮先在 minibatch 上评估当前候选，收集执行轨迹与评估反馈，再由反思器改写技能模块的提示词；
-            新候选只有在 minibatch 上优于父代时才会被接受，帕累托前沿则用于后续的候选选择，
+            每一轮先在 minibatch
+            上评估当前候选，收集执行轨迹与评估反馈，再由反思器改写技能模块的提示词；
+            新候选只有在 minibatch
+            上优于父代时才会被接受，帕累托前沿则用于后续的候选选择，
             在多个评估维度上维持多样性与稳定性。
           </p>
           <p>

@@ -16,6 +16,11 @@ import { toast } from "sonner"
 import { apiDelete, apiGet } from "@/lib/gepa/client"
 import type { TaskRecord } from "@/lib/gepa/types"
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/registry/new-york-v4/ui/alert"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -25,7 +30,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/registry/new-york-v4/ui/alert-dialog"
-import { Alert, AlertDescription, AlertTitle } from "@/registry/new-york-v4/ui/alert"
 import { Button } from "@/registry/new-york-v4/ui/button"
 import {
   Card,
@@ -37,12 +41,7 @@ import {
 } from "@/registry/new-york-v4/ui/card"
 import { Skeleton } from "@/registry/new-york-v4/ui/skeleton"
 
-import {
-  errorText,
-  formatDateTime,
-  formatScore,
-  percent,
-} from "./format"
+import { errorText, formatDateTime, formatScore, percent } from "./format"
 import { TaskStatusBadge } from "./status-badge"
 import { TaskCreateDialog } from "./task-create-dialog"
 import type { TaskSummary } from "./types"
@@ -193,7 +192,11 @@ export function TaskList() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => void load()} disabled={loading}>
+          <Button
+            variant="outline"
+            onClick={() => void load()}
+            disabled={loading}
+          >
             {loading ? (
               <Loader2Icon className="animate-spin" />
             ) : (
@@ -282,7 +285,8 @@ export function TaskList() {
           <AlertDialogHeader>
             <AlertDialogTitle>删除任务</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要删除「{deleteTarget?.name}」吗？任务的工作空间、运行记录与对话历史都会被删除，此操作不可撤销。
+              确定要删除「{deleteTarget?.name}
+              」吗？任务的工作空间、运行记录与对话历史都会被删除，此操作不可撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

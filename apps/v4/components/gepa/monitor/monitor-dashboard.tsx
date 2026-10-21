@@ -11,11 +11,7 @@ import {
   AlertTitle,
 } from "@/registry/new-york-v4/ui/alert"
 import { Button } from "@/registry/new-york-v4/ui/button"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-} from "@/registry/new-york-v4/ui/card"
+import { Card, CardContent, CardHeader } from "@/registry/new-york-v4/ui/card"
 import { Label } from "@/registry/new-york-v4/ui/label"
 import { Skeleton } from "@/registry/new-york-v4/ui/skeleton"
 import { Switch } from "@/registry/new-york-v4/ui/switch"
@@ -157,7 +153,9 @@ export function MonitorDashboard() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground tabular-nums">
-            {lastUpdatedAt ? `更新于 ${formatClock(lastUpdatedAt)}` : "尚未加载"}
+            {lastUpdatedAt
+              ? `更新于 ${formatClock(lastUpdatedAt)}`
+              : "尚未加载"}
           </span>
           <Button
             variant="outline"
@@ -165,7 +163,9 @@ export function MonitorDashboard() {
             onClick={() => void load("silent")}
             disabled={refreshing || loading}
           >
-            <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
+            <RefreshCwIcon
+              className={refreshing ? "animate-spin" : undefined}
+            />
             刷新
           </Button>
         </div>

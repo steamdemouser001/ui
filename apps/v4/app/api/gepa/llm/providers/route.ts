@@ -36,8 +36,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Record<string, unknown>
     const name = typeof body.name === "string" ? body.name.trim() : ""
-    const baseUrl =
-      typeof body.baseUrl === "string" ? body.baseUrl.trim() : ""
+    const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl.trim() : ""
     const models = parseModelsInput(body.models)
     if (!name) return fail("请填写供应商名称")
     if (!baseUrl) return fail("请填写 Base URL")
