@@ -70,6 +70,7 @@ export async function POST(request: Request) {
         agentId: "llm-test",
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
+        cacheTokens: result.cacheTokens,
         durationMs: result.durationMs,
         success: true,
       }).catch(() => undefined)
@@ -93,6 +94,7 @@ export async function POST(request: Request) {
           TEST_MESSAGES.map((item) => item.content).join("\n").length / 4
         ),
         outputTokens: 0,
+        cacheTokens: 0,
         durationMs: Date.now() - startedAt,
         success: false,
         error: message,

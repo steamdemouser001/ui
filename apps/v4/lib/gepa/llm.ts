@@ -69,6 +69,7 @@ export async function runAgent(
       runId: meta?.runId,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
+      cacheTokens: result.cacheTokens,
       durationMs: result.durationMs,
       success: true,
     })
@@ -84,6 +85,7 @@ export async function runAgent(
       runId: meta?.runId,
       inputTokens: estimateTokens(prompt),
       outputTokens: 0,
+      cacheTokens: 0,
       durationMs: Date.now() - startedAt,
       success: false,
       error: message,

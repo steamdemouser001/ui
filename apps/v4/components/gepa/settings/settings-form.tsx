@@ -60,6 +60,7 @@ function monitorToDraft(monitor: MonitorConfig): MonitorDraft {
   return {
     inputCostPerMillion: String(monitor.inputCostPerMillion),
     outputCostPerMillion: String(monitor.outputCostPerMillion),
+    cacheCostPerMillion: String(monitor.cacheCostPerMillion),
     retentionDays: String(monitor.retentionDays),
   }
 }
@@ -287,7 +288,7 @@ export function SettingsForm({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <NumberField
               id="settings-input-cost"
               label="输入单价（每百万 Token）"
@@ -305,6 +306,15 @@ export function SettingsForm({
               error={monitorErrors.outputCostPerMillion}
               disabled={busy}
               onChange={(value) => updateField("outputCostPerMillion", value)}
+            />
+            <NumberField
+              id="settings-cache-cost"
+              label="缓存单价（每百万 Token）"
+              hint="缓存命中 Token 的单价，0-100000。"
+              value={draft.cacheCostPerMillion}
+              error={monitorErrors.cacheCostPerMillion}
+              disabled={busy}
+              onChange={(value) => updateField("cacheCostPerMillion", value)}
             />
             <NumberField
               id="settings-retention"

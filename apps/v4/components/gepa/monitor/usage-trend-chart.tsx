@@ -38,6 +38,15 @@ const chartConfig = {
     label: "Token",
     color: "var(--chart-4)",
   },
+  cache: {
+    label: "缓存 Token",
+    color: "var(--chart-5)",
+  },
+  // 图例按 dataKey 查找配置，补一个同义键保证缓存系列图例文案可见。
+  cacheTokens: {
+    label: "缓存 Token",
+    color: "var(--chart-5)",
+  },
 } satisfies ChartConfig
 
 interface UsageTrendChartProps {
@@ -49,6 +58,7 @@ export function UsageTrendChart({ snapshot }: UsageTrendChartProps) {
     date: day.date,
     calls: day.calls,
     tokens: day.inputTokens + day.outputTokens,
+    cacheTokens: day.cacheTokens,
   }))
 
   return (
@@ -56,7 +66,7 @@ export function UsageTrendChart({ snapshot }: UsageTrendChartProps) {
       <CardHeader>
         <CardTitle>调用趋势</CardTitle>
         <CardDescription>
-          按天统计的调用量（左轴）与输入、输出 Token 总量（右轴）。
+          按天统计的调用量（左轴）与输入、输出与缓存 Token（右轴）。
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -138,6 +148,17 @@ export function UsageTrendChart({ snapshot }: UsageTrendChartProps) {
                 fill="var(--color-tokens)"
                 fillOpacity={0.1}
                 strokeWidth={2}
+              />
+              <Area
+                yAxisId="tokens"
+                type="monotone"
+                dataKey="cacheTokens"
+                name="缓存 Token"
+                stroke="var(--color-cache)"
+                fill="var(--color-cache)"
+                fillOpacity={0.06}
+                strokeWidth={2}
+                strokeDasharray="4 4"
               />
             </AreaChart>
           </ChartContainer>

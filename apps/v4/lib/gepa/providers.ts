@@ -34,6 +34,7 @@ export interface LlmResult {
   text: string
   inputTokens: number
   outputTokens: number
+  cacheTokens: number
   durationMs: number
 }
 
@@ -80,6 +81,16 @@ function trimBaseUrl(baseUrl: string): string {
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
+}
+
+/** 取第一个有限数字，用于兼容不同供应商的缓存 Token 字段。 */
+function firstFiniteTokenCount(...values: unknown[]): number {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value
+    }
+  }
+  return 0
 }
 
 function normalizeContent(content: unknown): string {
@@ -300,12 +311,21 @@ interface OpenAiResponse {
     completion_tokens?: number
     input_tokens?: number
     output_tokens?: number
+    prompt_tokens_details?: { cached_tokens?: number }
+    input_tokens_details?: { cached_tokens?: number }
+    cached_tokens?: number
+    prompt_cache_hit_tokens?: number
   }
 }
 
 interface AnthropicResponse {
   content?: { type?: string; text?: string }[]
-  usage?: { input_tokens?: number; output_tokens?: number }
+  usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+  }
 }
 
 const THINKING_BUDGETS: Record<ReasoningEffort, number> = {
@@ -351,6 +371,12 @@ async function callOpenAiCompatible(
       ),
     outputTokens:
       usage?.completion_tokens ?? usage?.output_tokens ?? estimateTokens(text),
+    cacheTokens: firstFiniteTokenCount(
+      usage?.prompt_tokens_details?.cached_tokens,
+      usage?.input_tokens_details?.cached_tokens,
+      usage?.cached_tokens,
+      usage?.prompt_cache_hit_tokens
+    ),
   }
 }
 
@@ -412,14 +438,21 @@ async function callAnthropic(
     .filter((block) => typeof block.text === "string")
     .map((block) => block.text as string)
     .join("")
+  const usage = payload.usage
+  const cacheReadTokens = usage?.cache_read_input_tokens ?? 0
+  const cacheCreationTokens = usage?.cache_creation_input_tokens ?? 0
+  const reportedInputTokens = usage?.input_tokens ?? null
   return {
     text,
+    // Anthropic 的 input_tokens 不含缓存，这里归一化为包含缓存的总输入
     inputTokens:
-      payload.usage?.input_tokens ??
-      estimateTokens(
-        options.messages.map((message) => message.content).join("\n")
-      ),
-    outputTokens: payload.usage?.output_tokens ?? estimateTokens(text),
+      reportedInputTokens !== null
+        ? reportedInputTokens + cacheReadTokens + cacheCreationTokens
+        : estimateTokens(
+            options.messages.map((message) => message.content).join("\n")
+          ),
+    outputTokens: usage?.output_tokens ?? estimateTokens(text),
+    cacheTokens: cacheReadTokens,
   }
 }
 

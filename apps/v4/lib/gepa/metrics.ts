@@ -26,7 +26,9 @@ export interface MetricsSummary {
   failedCalls: number
   inputTokens: number
   outputTokens: number
+  cacheTokens: number
   estimatedCost: number
+  cacheCost: number
   byAgent: Record<string, number>
   byTask: Record<string, number>
   byDay: {
@@ -34,6 +36,7 @@ export interface MetricsSummary {
     calls: number
     inputTokens: number
     outputTokens: number
+    cacheTokens: number
   }[]
 }
 
@@ -45,14 +48,22 @@ export async function summarizeMetrics(): Promise<MetricsSummary> {
     failedCalls: 0,
     inputTokens: 0,
     outputTokens: 0,
+    cacheTokens: 0,
     estimatedCost: 0,
+    cacheCost: 0,
     byAgent: {},
     byTask: {},
     byDay: [],
   }
   const days = new Map<
     string,
-    { date: string; calls: number; inputTokens: number; outputTokens: number }
+    {
+      date: string
+      calls: number
+      inputTokens: number
+      outputTokens: number
+      cacheTokens: number
+    }
   >()
 
   for (const call of calls) {
@@ -65,8 +76,13 @@ export async function summarizeMetrics(): Promise<MetricsSummary> {
     const outputTokens = Number.isFinite(call.outputTokens)
       ? call.outputTokens
       : 0
+    const cacheTokens =
+      typeof call.cacheTokens === "number" && Number.isFinite(call.cacheTokens)
+        ? call.cacheTokens
+        : 0
     summary.inputTokens += inputTokens
     summary.outputTokens += outputTokens
+    summary.cacheTokens += cacheTokens
 
     const agentKey = call.agentId || "unknown"
     summary.byAgent[agentKey] = (summary.byAgent[agentKey] ?? 0) + 1
@@ -80,19 +96,25 @@ export async function summarizeMetrics(): Promise<MetricsSummary> {
       calls: 0,
       inputTokens: 0,
       outputTokens: 0,
+      cacheTokens: 0,
     }
     day.calls += 1
     day.inputTokens += inputTokens
     day.outputTokens += outputTokens
+    day.cacheTokens += cacheTokens
     days.set(date, day)
   }
 
+  const billableInput = Math.max(0, summary.inputTokens - summary.cacheTokens)
   const inputCost =
-    (summary.inputTokens / 1_000_000) * settings.monitor.inputCostPerMillion
+    (billableInput / 1_000_000) * settings.monitor.inputCostPerMillion
+  const cacheCost =
+    (summary.cacheTokens / 1_000_000) * settings.monitor.cacheCostPerMillion
   const outputCost =
     (summary.outputTokens / 1_000_000) * settings.monitor.outputCostPerMillion
+  summary.cacheCost = Math.round(cacheCost * 1_000_000) / 1_000_000
   summary.estimatedCost =
-    Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000
+    Math.round((inputCost + cacheCost + outputCost) * 1_000_000) / 1_000_000
   summary.byDay = [...days.values()].sort((a, b) =>
     a.date.localeCompare(b.date)
   )

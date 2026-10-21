@@ -14,6 +14,7 @@ export interface IterationDraft {
 export interface MonitorDraft {
   inputCostPerMillion: string
   outputCostPerMillion: string
+  cacheCostPerMillion: string
   retentionDays: string
 }
 

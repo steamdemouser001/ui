@@ -77,6 +77,7 @@ export interface GlobalConstraints {
 export interface MonitorConfig {
   inputCostPerMillion: number
   outputCostPerMillion: number
+  cacheCostPerMillion: number // 缓存 Token 单价（每百万）
   retentionDays: number
 }
 
@@ -247,6 +248,7 @@ export interface LlmCallLog {
   runId?: string
   inputTokens: number
   outputTokens: number
+  cacheTokens?: number // 旧日志缺失时按 0
   durationMs: number
   success: boolean
   error?: string

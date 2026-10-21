@@ -31,6 +31,12 @@ export const NUMBER_SPECS = {
     integer: false,
     label: "输出单价",
   },
+  cacheCostPerMillion: {
+    min: 0,
+    max: 100000,
+    integer: false,
+    label: "缓存单价",
+  },
   retentionDays: { min: 1, max: 3650, integer: true, label: "指标保留天数" },
 } satisfies Record<string, NumberSpec>
 
@@ -121,6 +127,11 @@ export function parseMonitorDraft(
       "outputCostPerMillion",
       errors
     ),
+    cacheCostPerMillion: readDraftNumber(
+      draft.cacheCostPerMillion,
+      "cacheCostPerMillion",
+      errors
+    ),
     retentionDays: readDraftNumber(
       draft.retentionDays,
       "retentionDays",
@@ -158,6 +169,7 @@ const ITERATION_KEYS = [
 const MONITOR_KEYS = [
   "inputCostPerMillion",
   "outputCostPerMillion",
+  "cacheCostPerMillion",
   "retentionDays",
 ] as const
 
@@ -366,6 +378,15 @@ function parseMonitorImport(
     errors
   )
   if (outputCost !== undefined) result.outputCostPerMillion = outputCost
+
+  const cacheCost = readImportNumber(
+    record,
+    "cacheCostPerMillion",
+    NUMBER_SPECS.cacheCostPerMillion,
+    "monitor",
+    errors
+  )
+  if (cacheCost !== undefined) result.cacheCostPerMillion = cacheCost
 
   const retentionDays = readImportNumber(
     record,

@@ -361,6 +361,7 @@ export function createDefaultSettings(): GlobalSettings {
     monitor: {
       inputCostPerMillion: 0,
       outputCostPerMillion: 0,
+      cacheCostPerMillion: 0,
       retentionDays: 30,
     },
     updatedAt: new Date().toISOString(),

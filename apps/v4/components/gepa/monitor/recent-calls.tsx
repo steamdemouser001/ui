@@ -66,7 +66,7 @@ export function RecentCalls({ calls }: RecentCallsProps) {
                 <TableHead>时间</TableHead>
                 <TableHead>Agent</TableHead>
                 <TableHead>模型</TableHead>
-                <TableHead>Token（入 / 出）</TableHead>
+                <TableHead>Token（入 / 出 / 缓存）</TableHead>
                 <TableHead>耗时</TableHead>
                 <TableHead>状态</TableHead>
               </TableRow>
@@ -93,7 +93,8 @@ export function RecentCalls({ calls }: RecentCallsProps) {
                     </TableCell>
                     <TableCell className="whitespace-nowrap tabular-nums">
                       {formatNumber(call.inputTokens)} /{" "}
-                      {formatNumber(call.outputTokens)}
+                      {formatNumber(call.outputTokens)} /{" "}
+                      {formatNumber(call.cacheTokens ?? 0)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap tabular-nums">
                       {formatDuration(call.durationMs)}

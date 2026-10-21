@@ -2,6 +2,7 @@ import {
   ActivityIcon,
   BadgeCheckIcon,
   CoinsIcon,
+  DatabaseIcon,
   HashIcon,
   ListTodoIcon,
   SparklesIcon,
@@ -46,13 +47,19 @@ export function MetricCards({ snapshot }: MetricCardsProps) {
     {
       label: "Token 用量",
       value: formatNumber(metrics.inputTokens + metrics.outputTokens),
-      hint: `输入 ${formatNumber(metrics.inputTokens)} · 输出 ${formatNumber(metrics.outputTokens)}`,
+      hint: `输入 ${formatNumber(metrics.inputTokens)} · 输出 ${formatNumber(metrics.outputTokens)} · 缓存 ${formatNumber(metrics.cacheTokens)}`,
       icon: HashIcon,
+    },
+    {
+      label: "缓存 Token",
+      value: formatNumber(metrics.cacheTokens),
+      hint: `缓存费用 ${formatCost(metrics.cacheCost)}`,
+      icon: DatabaseIcon,
     },
     {
       label: "预估成本",
       value: formatCost(metrics.estimatedCost),
-      hint: "按设置中的单价估算",
+      hint: "按设置单价估算（含缓存）",
       icon: CoinsIcon,
     },
     {
