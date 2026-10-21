@@ -56,3 +56,6 @@ __screenshots__
 
 CONTEXT.md
 docs/adr
+
+# GEPA runtime data (providers, agents, tasks, metrics)
+apps/v4/.gepa-data/

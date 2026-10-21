@@ -63,6 +63,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace packages
+        run: pnpm build:packages
+
       - name: Build registry styles
         run: pnpm --filter=v4 registry:build --style all
 
