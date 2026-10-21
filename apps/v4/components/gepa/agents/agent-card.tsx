@@ -24,7 +24,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/registry/new-york-v4/ui/card"
-import { Input } from "@/registry/new-york-v4/ui/input"
 import { Label } from "@/registry/new-york-v4/ui/label"
 import { Switch } from "@/registry/new-york-v4/ui/switch"
 import { Textarea } from "@/registry/new-york-v4/ui/textarea"
@@ -37,8 +36,6 @@ export interface AgentFormState {
   enabled: boolean
   providerId: string | null
   model: string
-  temperature: string
-  maxTokens: string
   prompt: string
 }
 
@@ -57,8 +54,6 @@ export function agentToForm(agent: AgentConfig): AgentFormState {
     enabled: agent.enabled,
     providerId: agent.providerId,
     model: agent.model,
-    temperature: String(agent.temperature),
-    maxTokens: String(agent.maxTokens),
     prompt: agent.prompt,
   }
 }
@@ -157,41 +152,9 @@ export function AgentCard({
               选择「使用默认供应商」时跟随 LLM 配置中的默认供应商。
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor={`agent-${agent.id}-temperature`}>
-                Temperature
-              </Label>
-              <Input
-                id={`agent-${agent.id}-temperature`}
-                type="number"
-                min={0}
-                max={2}
-                step={0.1}
-                value={form.temperature}
-                disabled={busy}
-                onChange={(event) =>
-                  onChange({ temperature: event.target.value })
-                }
-              />
-              <p className="text-xs text-muted-foreground">范围 0 - 2</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor={`agent-${agent.id}-max-tokens`}>最大 Token</Label>
-              <Input
-                id={`agent-${agent.id}-max-tokens`}
-                type="number"
-                min={256}
-                max={32768}
-                step={1}
-                value={form.maxTokens}
-                disabled={busy}
-                onChange={(event) =>
-                  onChange({ maxTokens: event.target.value })
-                }
-              />
-              <p className="text-xs text-muted-foreground">256 - 32768</p>
-            </div>
+          <div className="self-start rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+            生成参数（思考强度、上下文长度、重试次数）统一在 LLM
+            配置的供应商中设置。
           </div>
         </div>
 

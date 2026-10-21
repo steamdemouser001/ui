@@ -5,6 +5,7 @@ import { cn } from "cn"
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
+  DownloadIcon,
   Loader2Icon,
   PencilIcon,
   PlusIcon,
@@ -16,7 +17,12 @@ import {
 import { toast } from "sonner"
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/gepa/client"
-import type { LlmProvider, LlmProviderKind } from "@/lib/gepa/types"
+import type {
+  LlmProvider,
+  LlmProviderKind,
+  ProviderGeneration,
+  ReasoningEffort,
+} from "@/lib/gepa/types"
 import {
   Alert,
   AlertDescription,
@@ -86,12 +92,45 @@ interface ProviderFormState {
   modelsText: string
   defaultModel: string
   enabled: boolean
+  reasoningEffort: ReasoningEffort
+  contextLength: string
+  maxRetries: string
 }
 
 interface TestResult {
   ok: boolean
   text: string
   durationMs?: number
+}
+
+const DEFAULT_GENERATION: ProviderGeneration = {
+  reasoningEffort: "high",
+  contextLength: 16,
+  maxRetries: 2,
+}
+
+const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
+  low: "低",
+  high: "高",
+  max: "最高",
+}
+
+function resolveContextLength(generation?: ProviderGeneration): number {
+  const value = generation?.contextLength
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_GENERATION.contextLength
+  }
+  return value
+}
+
+function resolveGeneration(provider: LlmProvider): ProviderGeneration {
+  const generation = provider.generation
+  return {
+    reasoningEffort:
+      generation?.reasoningEffort ?? DEFAULT_GENERATION.reasoningEffort,
+    contextLength: resolveContextLength(generation),
+    maxRetries: generation?.maxRetries ?? DEFAULT_GENERATION.maxRetries,
+  }
 }
 
 const EMPTY_FORM: ProviderFormState = {
@@ -102,6 +141,9 @@ const EMPTY_FORM: ProviderFormState = {
   modelsText: "",
   defaultModel: "",
   enabled: true,
+  reasoningEffort: DEFAULT_GENERATION.reasoningEffort,
+  contextLength: String(DEFAULT_GENERATION.contextLength),
+  maxRetries: String(DEFAULT_GENERATION.maxRetries),
 }
 
 function parseModelsText(value: string): string[] {
@@ -131,6 +173,7 @@ export function LlmSettings() {
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [form, setForm] = React.useState<ProviderFormState>(EMPTY_FORM)
   const [saving, setSaving] = React.useState(false)
+  const [fetchingModels, setFetchingModels] = React.useState(false)
 
   const [testingId, setTestingId] = React.useState<string | null>(null)
   const [defaultingId, setDefaultingId] = React.useState<string | null>(null)
@@ -172,6 +215,7 @@ export function LlmSettings() {
   }
 
   function openEdit(provider: LlmProvider) {
+    const generation = resolveGeneration(provider)
     setEditingId(provider.id)
     setForm({
       name: provider.name,
@@ -181,6 +225,9 @@ export function LlmSettings() {
       modelsText: provider.models.join("\n"),
       defaultModel: provider.defaultModel,
       enabled: provider.enabled,
+      reasoningEffort: generation.reasoningEffort,
+      contextLength: String(generation.contextLength),
+      maxRetries: String(generation.maxRetries),
     })
     setDialogOpen(true)
   }
@@ -202,6 +249,25 @@ export function LlmSettings() {
       toast.error("请至少填写一个模型")
       return
     }
+    const contextLength = Number(form.contextLength)
+    if (
+      !Number.isInteger(contextLength) ||
+      contextLength < 1 ||
+      contextLength > 1000000
+    ) {
+      toast.error("上下文长度必须是 1 到 1000000 之间的整数（单位 k tokens）")
+      return
+    }
+    const maxRetries = Number(form.maxRetries)
+    if (!Number.isInteger(maxRetries) || maxRetries < 0 || maxRetries > 5) {
+      toast.error("重试次数必须是 0 到 5 之间的整数")
+      return
+    }
+    const generation: ProviderGeneration = {
+      reasoningEffort: form.reasoningEffort,
+      contextLength,
+      maxRetries,
+    }
     const defaultModel = models.includes(form.defaultModel.trim())
       ? form.defaultModel.trim()
       : models[0]
@@ -217,6 +283,7 @@ export function LlmSettings() {
           models,
           defaultModel,
           enabled: form.enabled,
+          generation,
         })
         toast.success("供应商已更新")
       } else {
@@ -228,6 +295,7 @@ export function LlmSettings() {
           models,
           defaultModel,
           enabled: form.enabled,
+          generation,
         })
         toast.success("供应商已添加")
       }
@@ -237,6 +305,46 @@ export function LlmSettings() {
       toast.error(errorText(saveError, "保存供应商失败"))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleFetchModels() {
+    const baseUrl = form.baseUrl.trim()
+    const apiKey = form.apiKey.trim()
+    if (!baseUrl) {
+      toast.error("请填写 Base URL")
+      return
+    }
+    if (!editingId && !apiKey) {
+      toast.error("请填写 API Key")
+      return
+    }
+
+    setFetchingModels(true)
+    try {
+      const data = await apiPost<{ models: string[] }>("/api/gepa/llm/models", {
+        providerId: editingId ?? undefined,
+        kind: form.kind,
+        baseUrl,
+        apiKey,
+      })
+      const models = data?.models ?? []
+      if (models.length === 0) {
+        toast.error("上游未返回任何模型")
+        return
+      }
+      setForm((current) => ({
+        ...current,
+        modelsText: models.join("\n"),
+        defaultModel: models.includes(current.defaultModel)
+          ? current.defaultModel
+          : models[0],
+      }))
+      toast.success(`已获取 ${models.length} 个模型`)
+    } catch (fetchError) {
+      toast.error(errorText(fetchError, "获取模型列表失败"))
+    } finally {
+      setFetchingModels(false)
     }
   }
 
@@ -377,6 +485,7 @@ export function LlmSettings() {
           {providers.map((provider) => {
             const result = testResults[provider.id]
             const isDefault = provider.id === defaultProviderId
+            const generation = resolveGeneration(provider)
             return (
               <Card key={provider.id} className="gap-4">
                 <CardHeader>
@@ -421,6 +530,21 @@ export function LlmSettings() {
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground">模型数量</span>
                     <span>{provider.models.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">思考强度</span>
+                    <span>
+                      {REASONING_EFFORT_LABELS[generation.reasoningEffort] ??
+                        generation.reasoningEffort}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">上下文长度</span>
+                    <span>{generation.contextLength}k tokens</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">重试次数</span>
+                    <span>{generation.maxRetries} 次</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground">API Key</span>
@@ -601,7 +725,23 @@ export function LlmSettings() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="provider-models">模型列表</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="provider-models">模型列表</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleFetchModels()}
+                  disabled={fetchingModels || saving}
+                >
+                  {fetchingModels ? (
+                    <Loader2Icon className="animate-spin" />
+                  ) : (
+                    <DownloadIcon />
+                  )}
+                  自动获取
+                </Button>
+              </div>
               <Textarea
                 id="provider-models"
                 rows={3}
@@ -659,6 +799,78 @@ export function LlmSettings() {
                   <span className="text-sm text-muted-foreground">
                     {form.enabled ? "已启用" : "已停用"}
                   </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">生成参数</p>
+                <p className="text-xs text-muted-foreground">
+                  这些参数统一作用于使用该供应商的所有 Agent；上下文长度单位为
+                  k（1k = 1024 tokens），包含输入与输出。
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="provider-reasoning-effort">思考强度</Label>
+                  <Select
+                    value={form.reasoningEffort}
+                    onValueChange={(value) =>
+                      setForm((current) => ({
+                        ...current,
+                        reasoningEffort: value as ReasoningEffort,
+                      }))
+                    }
+                  >
+                    <SelectTrigger
+                      id="provider-reasoning-effort"
+                      className="w-full"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">低</SelectItem>
+                      <SelectItem value="high">高</SelectItem>
+                      <SelectItem value="max">最高</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="provider-context-length">
+                    上下文长度（k）
+                  </Label>
+                  <Input
+                    id="provider-context-length"
+                    type="number"
+                    min={1}
+                    max={1000000}
+                    step={1}
+                    value={form.contextLength}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        contextLength: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="provider-max-retries">重试次数</Label>
+                  <Input
+                    id="provider-max-retries"
+                    type="number"
+                    min={0}
+                    max={5}
+                    step={1}
+                    value={form.maxRetries}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        maxRetries: event.target.value,
+                      }))
+                    }
+                  />
                 </div>
               </div>
             </div>

@@ -3,6 +3,7 @@ import { logLlmCall } from "@/lib/gepa/metrics"
 import {
   callProvider,
   parseModelsInput,
+  parseProviderGeneration,
   parseProviderKind,
 } from "@/lib/gepa/providers"
 import { getProvider } from "@/lib/gepa/storage"
@@ -11,9 +12,7 @@ import type { LlmProvider } from "@/lib/gepa/types"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const TEST_MESSAGES = [
-  { role: "user" as const, content: "请只回复：OK" },
-]
+const TEST_MESSAGES = [{ role: "user" as const, content: "请只回复：OK" }]
 
 export async function POST(request: Request) {
   try {
@@ -45,6 +44,7 @@ export async function POST(request: Request) {
         apiKey,
         models: parseModelsInput(body.models),
         defaultModel: "",
+        generation: parseProviderGeneration(body.generation),
         enabled: true,
         createdAt: now,
         updatedAt: now,
@@ -62,8 +62,6 @@ export async function POST(request: Request) {
       const result = await callProvider(provider, {
         model,
         messages: TEST_MESSAGES,
-        temperature: 0,
-        maxTokens: 32,
       })
       await logLlmCall({
         providerId: provider.id,

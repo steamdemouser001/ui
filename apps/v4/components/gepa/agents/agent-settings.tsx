@@ -106,16 +106,6 @@ export function AgentSettings() {
       toast.error("提示词不能为空")
       return
     }
-    const temperature = Number(form.temperature)
-    if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
-      toast.error("Temperature 必须在 0 到 2 之间")
-      return
-    }
-    const maxTokens = Number(form.maxTokens)
-    if (!Number.isInteger(maxTokens) || maxTokens < 256 || maxTokens > 32768) {
-      toast.error("最大 Token 必须是 256 到 32768 之间的整数")
-      return
-    }
 
     setSavingId(agent.id)
     try {
@@ -127,8 +117,6 @@ export function AgentSettings() {
           enabled: form.enabled,
           providerId: form.providerId,
           model: form.model,
-          temperature,
-          maxTokens,
           prompt: form.prompt,
         }
       )
@@ -281,7 +269,7 @@ export function AgentSettings() {
             <AlertDialogTitle>恢复默认配置</AlertDialogTitle>
             <AlertDialogDescription>
               确定要将「{resetTarget?.name}
-              」的提示词、模型与生成参数恢复为默认值吗？未保存的修改将丢失，此操作不可撤销。
+              」的提示词与模型恢复为默认值吗？未保存的修改将丢失，此操作不可撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

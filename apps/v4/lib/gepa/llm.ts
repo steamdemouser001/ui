@@ -59,8 +59,6 @@ export async function runAgent(
     const result = await callProvider(provider, {
       model,
       messages,
-      temperature: agent.temperature,
-      maxTokens: agent.maxTokens,
     })
     await safeLog({
       providerId: provider.id,

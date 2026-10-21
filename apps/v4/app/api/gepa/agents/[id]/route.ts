@@ -55,24 +55,6 @@ export async function PATCH(
       }
       patch.model = body.model.trim()
     }
-    if (body.temperature !== undefined) {
-      const temperature = Number(body.temperature)
-      if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
-        return fail("temperature 必须在 0 到 2 之间")
-      }
-      patch.temperature = temperature
-    }
-    if (body.maxTokens !== undefined) {
-      const maxTokens = Number(body.maxTokens)
-      if (
-        !Number.isInteger(maxTokens) ||
-        maxTokens < 256 ||
-        maxTokens > 32768
-      ) {
-        return fail("maxTokens 必须是 256 到 32768 之间的整数")
-      }
-      patch.maxTokens = maxTokens
-    }
     if (body.prompt !== undefined) {
       if (typeof body.prompt !== "string" || !body.prompt.trim()) {
         return fail("提示词不能为空")

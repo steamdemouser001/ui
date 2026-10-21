@@ -2,6 +2,7 @@ import { errorMessage, fail, ok } from "@/lib/gepa/http"
 import {
   maskProvider,
   parseModelsInput,
+  parseProviderGeneration,
   parseProviderKind,
 } from "@/lib/gepa/providers"
 import {
@@ -63,6 +64,9 @@ export async function PATCH(
     }
     if (body.clearApiKey === true) {
       next.apiKey = ""
+    }
+    if (body.generation !== undefined) {
+      next.generation = parseProviderGeneration(body.generation)
     }
     if (typeof body.enabled === "boolean") {
       next.enabled = body.enabled

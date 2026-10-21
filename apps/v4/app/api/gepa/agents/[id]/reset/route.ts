@@ -18,7 +18,7 @@ export async function POST(
     const index = agents.findIndex((agent) => agent.id === id)
     if (index === -1) return fail(`未知 Agent：${id}`, 404)
 
-    // 恢复默认提示词与参数，同时保留原有的更新时间。
+    // 恢复默认提示词与基础配置，同时保留原有的更新时间。
     const reset = { ...fallback, updatedAt: agents[index].updatedAt }
     agents[index] = reset
     await writeAgents(agents)

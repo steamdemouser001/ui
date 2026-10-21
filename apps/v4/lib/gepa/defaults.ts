@@ -3,6 +3,7 @@ import type {
   AgentId,
   GlobalSettings,
   IterationDefaults,
+  ProviderGeneration,
 } from "./types"
 
 export const DEFAULT_ITERATION: IterationDefaults = {
@@ -12,6 +13,68 @@ export const DEFAULT_ITERATION: IterationDefaults = {
   maxIterations: 20,
   moduleSelection: "round-robin",
   mergeEnabled: false,
+}
+
+export const DEFAULT_PROVIDER_GENERATION: ProviderGeneration = {
+  reasoningEffort: "high",
+  contextLength: 16,
+  maxRetries: 2,
+}
+
+// 上下文长度以 k tokens 存储（1k = 1024 tokens）
+const CONTEXT_LENGTH_MIN = 1
+const CONTEXT_LENGTH_MAX = 1_000_000
+const MAX_RETRIES_MIN = 0
+const MAX_RETRIES_MAX = 5
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function clampInteger(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number
+): number {
+  const numeric = toFiniteNumber(value)
+  if (numeric === null) return fallback
+  return Math.min(max, Math.max(min, Math.trunc(numeric)))
+}
+
+function normalizeContextLength(value: unknown, fallback: number): number {
+  return clampInteger(value, CONTEXT_LENGTH_MIN, CONTEXT_LENGTH_MAX, fallback)
+}
+
+export function normalizeProviderGeneration(
+  value: unknown
+): ProviderGeneration {
+  const source =
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {}
+  const effort = source.reasoningEffort
+  return {
+    reasoningEffort:
+      effort === "low" || effort === "high" || effort === "max"
+        ? effort
+        : DEFAULT_PROVIDER_GENERATION.reasoningEffort,
+    contextLength: normalizeContextLength(
+      source.contextLength,
+      DEFAULT_PROVIDER_GENERATION.contextLength
+    ),
+    maxRetries: clampInteger(
+      source.maxRetries,
+      MAX_RETRIES_MIN,
+      MAX_RETRIES_MAX,
+      DEFAULT_PROVIDER_GENERATION.maxRetries
+    ),
+  }
 }
 
 export const AGENT_ORDER: AgentId[] = [
@@ -182,8 +245,6 @@ const DEFAULT_AGENT_DEFINITIONS: Omit<AgentConfig, "updatedAt">[] = [
     enabled: true,
     providerId: null,
     model: "",
-    temperature: 0.3,
-    maxTokens: 2048,
     prompt: ORCHESTRATOR_PROMPT,
   },
   {
@@ -193,8 +254,6 @@ const DEFAULT_AGENT_DEFINITIONS: Omit<AgentConfig, "updatedAt">[] = [
     enabled: true,
     providerId: null,
     model: "",
-    temperature: 0.2,
-    maxTokens: 4096,
     prompt: EXECUTOR_PROMPT,
   },
   {
@@ -204,8 +263,6 @@ const DEFAULT_AGENT_DEFINITIONS: Omit<AgentConfig, "updatedAt">[] = [
     enabled: true,
     providerId: null,
     model: "",
-    temperature: 0,
-    maxTokens: 1024,
     prompt: EVALUATOR_PROMPT,
   },
   {
@@ -215,8 +272,6 @@ const DEFAULT_AGENT_DEFINITIONS: Omit<AgentConfig, "updatedAt">[] = [
     enabled: true,
     providerId: null,
     model: "",
-    temperature: 0.4,
-    maxTokens: 4096,
     prompt: REFLECTOR_PROMPT,
   },
   {
@@ -226,8 +281,6 @@ const DEFAULT_AGENT_DEFINITIONS: Omit<AgentConfig, "updatedAt">[] = [
     enabled: true,
     providerId: null,
     model: "",
-    temperature: 0.3,
-    maxTokens: 1024,
     prompt: SUMMARIZER_PROMPT,
   },
 ]

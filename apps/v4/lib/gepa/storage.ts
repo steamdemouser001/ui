@@ -7,6 +7,7 @@ import {
   createDefaultAgents,
   createDefaultSettings,
   DEFAULT_ITERATION,
+  normalizeProviderGeneration,
 } from "./defaults"
 import type {
   AgentConfig,
@@ -238,6 +239,7 @@ export async function readProviders(): Promise<LlmProvider[]> {
       ? provider.models.filter((model) => typeof model === "string")
       : [],
     apiKey: typeof provider.apiKey === "string" ? provider.apiKey : "",
+    generation: normalizeProviderGeneration(provider.generation),
     enabled: provider.enabled !== false,
   }))
 }
@@ -292,14 +294,30 @@ export async function readAgents(): Promise<AgentConfig[]> {
   return createDefaultAgents().map((fallback) => {
     const saved = byId.get(fallback.id)
     if (!saved) return fallback
+    // 仅合并 Agent 级字段；旧数据中的 temperature/maxTokens 等已废弃字段会被忽略。
     return {
-      ...fallback,
-      ...saved,
       id: fallback.id,
+      name:
+        typeof saved.name === "string" && saved.name.trim()
+          ? saved.name
+          : fallback.name,
+      description:
+        typeof saved.description === "string"
+          ? saved.description
+          : fallback.description,
+      enabled:
+        typeof saved.enabled === "boolean" ? saved.enabled : fallback.enabled,
+      providerId:
+        typeof saved.providerId === "string" ? saved.providerId : null,
+      model: typeof saved.model === "string" ? saved.model : fallback.model,
       prompt:
         typeof saved.prompt === "string" && saved.prompt.trim()
           ? saved.prompt
           : fallback.prompt,
+      updatedAt:
+        typeof saved.updatedAt === "string"
+          ? saved.updatedAt
+          : fallback.updatedAt,
     }
   })
 }

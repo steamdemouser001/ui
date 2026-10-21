@@ -1,5 +1,13 @@
 export type LlmProviderKind = "openai-compatible" | "anthropic"
 
+export type ReasoningEffort = "low" | "high" | "max"
+
+export interface ProviderGeneration {
+  reasoningEffort: ReasoningEffort
+  contextLength: number // 上下文窗口，单位 k tokens（1k = 1024 tokens，输入+输出）
+  maxRetries: number // 失败重试次数
+}
+
 export interface LlmProvider {
   id: string
   name: string
@@ -8,6 +16,7 @@ export interface LlmProvider {
   apiKey: string
   models: string[]
   defaultModel: string
+  generation: ProviderGeneration
   enabled: boolean
   createdAt: string
   updatedAt: string
@@ -27,8 +36,6 @@ export interface AgentConfig {
   enabled: boolean
   providerId: string | null
   model: string
-  temperature: number
-  maxTokens: number
   prompt: string
   updatedAt: string
 }

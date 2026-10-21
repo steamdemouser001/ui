@@ -4,6 +4,7 @@ import { errorMessage, fail, ok } from "@/lib/gepa/http"
 import {
   maskProvider,
   parseModelsInput,
+  parseProviderGeneration,
   parseProviderKind,
 } from "@/lib/gepa/providers"
 import {
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
       defaultModel: models.includes(requestedDefault)
         ? requestedDefault
         : models[0],
+      generation: parseProviderGeneration(body.generation),
       enabled: body.enabled !== false,
       createdAt: now,
       updatedAt: now,
