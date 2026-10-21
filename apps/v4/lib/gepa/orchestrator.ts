@@ -51,7 +51,8 @@ interface OrchestratorPayload {
   actions?: unknown
 }
 
-interface ActionContext {
+/** 单任务动作执行上下文；controller 复用同一执行器。 */
+export interface ActionContext {
   task: TaskRecord
   run: RunState | null
 }
@@ -178,7 +179,8 @@ function requireNumber(value: unknown, label: string): number {
   return value
 }
 
-async function executeAction(
+/** 执行单任务动作；供单任务总控与全局调度器共用。 */
+export async function executeTaskAction(
   taskId: string,
   action: OrchestratorAction,
   context: ActionContext
@@ -412,7 +414,7 @@ export async function chatWithOrchestrator(
   const actions: OrchestratorActionResult[] = []
   for (const raw of requested) {
     const action = raw as unknown as OrchestratorAction
-    actions.push(await executeAction(taskId, action, context))
+    actions.push(await executeTaskAction(taskId, action, context))
 
     // 每个动作后刷新上下文，保证后续动作基于最新状态执行。
     const freshTask = await readTask(taskId).catch(() => null)

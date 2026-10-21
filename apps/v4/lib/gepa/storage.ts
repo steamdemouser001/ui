@@ -514,3 +514,25 @@ export async function readOrchestratorMessages(
     limit
   )
 }
+
+const GLOBAL_CHAT_FILE = "config/chat.jsonl"
+
+export async function appendGlobalMessage(
+  message: OrchestratorMessage
+): Promise<void> {
+  await withLock("global-chat", () => appendJsonl(GLOBAL_CHAT_FILE, message))
+}
+
+export async function readGlobalMessages(
+  limit?: number
+): Promise<OrchestratorMessage[]> {
+  return readJsonl<OrchestratorMessage>(GLOBAL_CHAT_FILE, limit)
+}
+
+export async function clearGlobalMessages(): Promise<void> {
+  await withLock("global-chat", async () => {
+    const file = dataPath(GLOBAL_CHAT_FILE)
+    await ensureDir(path.dirname(file))
+    await fs.writeFile(file, "", "utf8")
+  })
+}

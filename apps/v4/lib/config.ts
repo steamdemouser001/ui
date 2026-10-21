@@ -9,6 +9,10 @@ export const siteConfig = {
       label: "概览",
     },
     {
+      href: "/gepa/chat",
+      label: "对话",
+    },
+    {
       href: "/gepa/tasks",
       label: "任务",
     },

@@ -24,6 +24,7 @@ export interface LlmProvider {
 
 export type AgentId =
   | "orchestrator"
+  | "controller"
   | "executor"
   | "evaluator"
   | "reflector"
@@ -229,6 +230,13 @@ export interface OrchestratorAction {
     | "setIterationLimit"
     | "updateModulePrompt"
     | "note"
+    | "createTask"
+    | "deleteTask"
+    | "updateTask"
+  taskId?: string
+  name?: string
+  description?: string
+  datasetText?: string
   budget?: number
   minibatchSize?: number
   maxIterations?: number

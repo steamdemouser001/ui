@@ -21,6 +21,7 @@ import { agentLabel, formatNumber, formatPercent } from "./format"
 
 const KNOWN_AGENT_IDS = [
   "orchestrator",
+  "controller",
   "executor",
   "evaluator",
   "reflector",

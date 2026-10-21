@@ -92,6 +92,9 @@ export const ACTION_LABELS: Record<string, string> = {
   setMinibatch: "设置 minibatch",
   setIterationLimit: "设置迭代上限",
   updateModulePrompt: "更新模块提示词",
+  createTask: "创建任务",
+  deleteTask: "删除任务",
+  updateTask: "更新任务",
   note: "备注",
 }
 

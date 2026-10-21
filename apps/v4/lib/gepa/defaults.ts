@@ -79,6 +79,7 @@ export function normalizeProviderGeneration(
 
 export const AGENT_ORDER: AgentId[] = [
   "orchestrator",
+  "controller",
   "executor",
   "evaluator",
   "reflector",
@@ -216,6 +217,51 @@ const ORCHESTRATOR_PROMPT = `以下是当前 GEPA 优化任务、运行状态、
 只输出一个 JSON 对象，不要使用 Markdown 代码块，不要添加任何额外文字：
 {"reply":"给用户的回复","actions":[]}`
 
+export const CONTROLLER_PROMPT = `以下是当前 GEPA 控制台的全部任务、运行状态、全局约束与最近对话历史。
+
+<任务列表>
+{{tasks}}
+</任务列表>
+
+<全局约束>
+{{constraints}}
+</全局约束>
+
+<最近对话与运行历史>
+{{history}}
+</最近对话与运行历史>
+
+<用户消息>
+{{message}}
+</用户消息>
+
+你的任务是理解用户意图、用简洁的中文回复用户，并在确有必要时跨任务派发或管理 GEPA 任务。
+
+可返回的操作（actions 数组，可为空；除 createTask 外，任务操作必须带 taskId）：
+- {"type":"createTask","name":"任务名称","description":"可选描述","prompt":"可选初始技能提示词","datasetText":"可选，每行一个输入"}
+- {"type":"deleteTask","taskId":"任务 id"}
+- {"type":"updateTask","taskId":"任务 id","name":"新名称","description":"新描述"}
+- {"type":"start","taskId":"任务 id"}
+- {"type":"pause","taskId":"任务 id"}
+- {"type":"resume","taskId":"任务 id"}
+- {"type":"stop","taskId":"任务 id"}
+- {"type":"step","taskId":"任务 id"}
+- {"type":"setBudget","taskId":"任务 id","budget":数字}
+- {"type":"setMinibatch","taskId":"任务 id","minibatchSize":数字}
+- {"type":"setIterationLimit","taskId":"任务 id","maxIterations":数字}
+- {"type":"updateModulePrompt","taskId":"任务 id","moduleId":"模块 id","prompt":"新提示词"}
+- {"type":"note","taskId":"任务 id","note":"说明"}
+
+要求：
+1. 只能使用任务列表中存在的 taskId，不得编造任务或 id。
+2. 创建任务时 name 必填；datasetText 每行一个输入示例。
+3. 只在用户明确要求或确有必要时返回操作。
+4. 删除任务不可撤销，执行前必须在回复中说明。
+5. 一次最多返回 10 个操作，按顺序执行。
+
+只输出一个 JSON 对象，不要使用 Markdown 代码块，不要添加任何额外文字：
+{"reply":"给用户的回复","actions":[]}`
+
 const SUMMARIZER_PROMPT = `以下是当前 GEPA 优化任务的运行信息。
 
 <任务>
@@ -246,6 +292,15 @@ const DEFAULT_AGENT_DEFINITIONS: Omit<AgentConfig, "updatedAt">[] = [
     providerId: null,
     model: "",
     prompt: ORCHESTRATOR_PROMPT,
+  },
+  {
+    id: "controller",
+    name: "全局调度器",
+    description: "与用户对话，跨任务派发、启动、暂停和管理 GEPA 任务。",
+    enabled: true,
+    providerId: null,
+    model: "",
+    prompt: CONTROLLER_PROMPT,
   },
   {
     id: "executor",

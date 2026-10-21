@@ -7,6 +7,7 @@ import {
   BotIcon,
   LayoutDashboardIcon,
   ListTodoIcon,
+  MessageSquareIcon,
   ServerIcon,
   Settings2Icon,
   ShieldCheckIcon,
@@ -33,6 +34,7 @@ const NAV_GROUPS = [
     label: "工作台",
     items: [
       { href: "/gepa", label: "概览", icon: LayoutDashboardIcon },
+      { href: "/gepa/chat", label: "对话", icon: MessageSquareIcon },
       { href: "/gepa/tasks", label: "任务", icon: ListTodoIcon },
       { href: "/gepa/monitor", label: "监控", icon: ActivityIcon },
     ],

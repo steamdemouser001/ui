@@ -9,6 +9,7 @@ import {
   RotateCcwIcon,
   SaveIcon,
   SparklesIcon,
+  WaypointsIcon,
   type LucideIcon,
 } from "lucide-react"
 
@@ -41,6 +42,7 @@ export interface AgentFormState {
 
 const AGENT_ICONS: Record<AgentId, LucideIcon> = {
   orchestrator: MessageSquareIcon,
+  controller: WaypointsIcon,
   executor: PlayIcon,
   evaluator: CheckCircle2Icon,
   reflector: SparklesIcon,

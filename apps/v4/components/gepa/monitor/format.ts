@@ -7,6 +7,7 @@ const compactNumberFormatter = new Intl.NumberFormat("zh-CN", {
 
 const AGENT_LABELS: Record<string, string> = {
   orchestrator: "总控",
+  controller: "全局调度器",
   executor: "执行器",
   evaluator: "评估器",
   reflector: "反思器",
