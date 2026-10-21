@@ -12,7 +12,6 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 const TEST_MESSAGES = [
-  { role: "system" as const, content: "你是一个连通性测试助手。" },
   { role: "user" as const, content: "请只回复：OK" },
 ]
 
