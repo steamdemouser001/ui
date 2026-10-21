@@ -38,6 +38,10 @@ export const siteConfig = {
       label: "Typeset",
     },
     {
+      href: "/gepa",
+      label: "GEPA",
+    },
+    {
       href: "/create",
       label: "Create",
     },
