@@ -1,0 +1,73 @@
+name: GEPA CI
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/v4/app/(app)/gepa/**"
+      - "apps/v4/app/api/gepa/**"
+      - "apps/v4/components/gepa/**"
+      - "apps/v4/lib/gepa/**"
+      - ".github/workflows/gepa-ci.yml"
+      - "pnpm-lock.yaml"
+  pull_request:
+    paths:
+      - "apps/v4/app/(app)/gepa/**"
+      - "apps/v4/app/api/gepa/**"
+      - "apps/v4/components/gepa/**"
+      - "apps/v4/lib/gepa/**"
+      - ".github/workflows/gepa-ci.yml"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: gepa-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: typecheck & build v4
+    env:
+      NEXT_PUBLIC_APP_URL: http://localhost:4000
+      NEXT_PUBLIC_V0_URL: https://v0.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          version: 10.33.4
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "pnpm_cache_dir=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        name: Setup pnpm cache
+        with:
+          path: ${{ steps.pnpm-cache.outputs.pnpm_cache_dir }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build registry styles
+        run: pnpm --filter=v4 registry:build --style all
+
+      - name: Typecheck
+        run: pnpm --filter=v4 typecheck
+
+      - name: Build
+        run: pnpm --filter=v4 build
