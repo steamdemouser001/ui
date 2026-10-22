@@ -32,6 +32,7 @@ const EMPTY_METRICS: MetricsSummary = {
   cacheTokens: 0,
   estimatedCost: 0,
   cacheCost: 0,
+  harnessCost: 0,
   byAgent: {},
   byTask: {},
   byDay: [],

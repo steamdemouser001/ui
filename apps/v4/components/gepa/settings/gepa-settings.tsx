@@ -8,6 +8,7 @@ import { apiGet, apiPatch } from "@/lib/gepa/client"
 import type {
   GlobalConstraints,
   GlobalSettings,
+  HarnessConfig,
   IterationDefaults,
   MonitorConfig,
 } from "@/lib/gepa/types"
@@ -146,6 +147,12 @@ export function GepaSettings() {
     return persist({ monitor: value }, "monitor", "监控与成本设置已保存")
   }
 
+  function handleSaveHarness(
+    value: HarnessConfig
+  ): Promise<GlobalSettings | null> {
+    return persist({ harness: value }, "harness", "执行 Harness 设置已保存")
+  }
+
   async function handleApply(
     patch: Partial<GlobalSettings>,
     action: "import" | "reset"
@@ -210,6 +217,7 @@ export function GepaSettings() {
         savingAction={savingAction}
         onSaveIteration={handleSaveIteration}
         onSaveMonitor={handleSaveMonitor}
+        onSaveHarness={handleSaveHarness}
       />
       <DataCard
         dataRoot={dataRoot}

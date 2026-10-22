@@ -1,4 +1,4 @@
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import {
   maskProvider,
   parseModelsInput,
@@ -22,7 +22,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await context.params
-    const body = (await request.json()) as Record<string, unknown>
+    const body = (await readJsonBody(request)) as Record<string, unknown>
     const providers = await readProviders()
     const index = providers.findIndex((provider) => provider.id === id)
     if (index === -1) return fail("供应商不存在", 404)

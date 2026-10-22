@@ -41,6 +41,20 @@ export interface AgentConfig {
   updatedAt: string
 }
 
+export type HarnessKind = "llm" | "claude-code"
+
+/** 执行器后端配置：默认走单次 LLM 补全，可切换为 Claude Code 会话。 */
+export interface HarnessConfig {
+  kind: HarnessKind
+  claudePath: string
+  model: string
+  allowedTools: string[]
+  maxUsdPerRollout: number
+  maxUsdPerRun: number
+  timeoutMs: number
+  maxConcurrent: number
+}
+
 export interface IterationDefaults {
   budget: number
   minibatchSize: number
@@ -88,6 +102,7 @@ export interface GlobalSettings {
   iteration: IterationDefaults
   constraints: GlobalConstraints
   monitor: MonitorConfig
+  harness: HarnessConfig
   updatedAt: string
 }
 
@@ -125,6 +140,15 @@ export interface TaskRecord {
   updatedAt: string
   runId: string | null
   notes: string
+  /** 可选：在工作空间内执行的测试命令，用于可验证评分。 */
+  testCommand?: string
+}
+
+export interface ToolCallTrace {
+  name: string
+  input: string
+  output?: string
+  isError?: boolean
 }
 
 export interface TraceStep {
@@ -134,6 +158,11 @@ export interface TraceStep {
   input: string
   output: string
   durationMs: number
+  toolCalls?: ToolCallTrace[]
+  exitCode?: number | null
+  stdout?: string
+  stderr?: string
+  costUsd?: number
 }
 
 export interface ExampleTrace {
@@ -207,6 +236,8 @@ export interface RunState {
   updatedAt: string
   finishedAt?: string
   error?: string
+  harness?: { kind: HarnessKind; model: string; claudeVersion?: string }
+  totalCostUsd?: number
   control: { pauseRequested: boolean; stopRequested: boolean }
 }
 
@@ -270,4 +301,6 @@ export interface LlmCallLog {
   durationMs: number
   success: boolean
   error?: string
+  harness?: HarnessKind
+  costUsd?: number
 }

@@ -1,4 +1,4 @@
-export type SettingsSection = "iteration" | "monitor"
+export type SettingsSection = "iteration" | "monitor" | "harness"
 
 export type SettingsAction = SettingsSection | "import" | "reset"
 
@@ -18,4 +18,15 @@ export interface MonitorDraft {
   retentionDays: string
 }
 
-export type SettingsDraft = IterationDraft & MonitorDraft
+export interface HarnessDraft {
+  kind: "llm" | "claude-code"
+  claudePath: string
+  model: string
+  allowedTools: string
+  maxUsdPerRollout: string
+  maxUsdPerRun: string
+  timeoutMs: string
+  maxConcurrent: string
+}
+
+export type SettingsDraft = IterationDraft & MonitorDraft & HarnessDraft

@@ -3,7 +3,7 @@ import {
   readChatSessionMessages,
 } from "@/lib/gepa/chat-sessions"
 import { chatWithController, clearGlobalChat } from "@/lib/gepa/controller"
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import { listTaskSummaries } from "@/lib/gepa/task-service"
 
 export const runtime = "nodejs"
@@ -30,9 +30,9 @@ export async function GET() {
 export async function POST(request: Request) {
   let body: unknown
   try {
-    body = await request.json()
-  } catch {
-    return fail("请求体必须是合法的 JSON")
+    body = await readJsonBody(request)
+  } catch (error) {
+    return fail(errorMessage(error))
   }
   if (!isRecord(body)) {
     return fail("请求体必须是 JSON 对象")

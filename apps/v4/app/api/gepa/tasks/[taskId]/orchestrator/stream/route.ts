@@ -1,4 +1,4 @@
-import { fail } from "@/lib/gepa/http"
+import { fail, readJsonBody } from "@/lib/gepa/http"
 import { chatWithOrchestratorStream } from "@/lib/gepa/orchestrator"
 import { sseResponse } from "@/lib/gepa/sse"
 import { readTask } from "@/lib/gepa/storage"
@@ -15,7 +15,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function POST(request: Request, context: RouteContext) {
   const { taskId } = await context.params
 
-  const body = await request.json().catch(() => null)
+  const body = await readJsonBody(request).catch(() => null)
   if (!isRecord(body)) {
     return fail("请求体必须是 JSON 对象")
   }

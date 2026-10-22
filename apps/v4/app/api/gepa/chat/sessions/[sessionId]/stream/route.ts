@@ -1,6 +1,6 @@
 import { readChatSession } from "@/lib/gepa/chat-sessions"
 import { chatWithControllerStream } from "@/lib/gepa/controller"
-import { fail } from "@/lib/gepa/http"
+import { fail, readJsonBody } from "@/lib/gepa/http"
 import { sseResponse } from "@/lib/gepa/sse"
 
 export const runtime = "nodejs"
@@ -15,7 +15,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function POST(request: Request, context: RouteContext) {
   const { sessionId } = await context.params
 
-  const body = await request.json().catch(() => null)
+  const body = await readJsonBody(request).catch(() => null)
   if (!isRecord(body)) {
     return fail("请求体必须是 JSON 对象")
   }

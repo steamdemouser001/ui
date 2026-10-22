@@ -1,5 +1,5 @@
 import { AGENT_ORDER } from "@/lib/gepa/defaults"
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import { readProviders, updateAgent } from "@/lib/gepa/storage"
 import type { AgentConfig, AgentId } from "@/lib/gepa/types"
 
@@ -18,7 +18,7 @@ export async function PATCH(
     const { id } = await context.params
     if (!isAgentId(id)) return fail(`未知 Agent：${id}`, 404)
 
-    const body = (await request.json()) as Record<string, unknown>
+    const body = (await readJsonBody(request)) as Record<string, unknown>
     const patch: Partial<AgentConfig> = {}
 
     if (body.name !== undefined) {

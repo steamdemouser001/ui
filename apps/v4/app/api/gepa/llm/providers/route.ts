@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import {
   maskProvider,
   parseModelsInput,
@@ -35,7 +35,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as Record<string, unknown>
+    const body = (await readJsonBody(request)) as Record<string, unknown>
     const name = typeof body.name === "string" ? body.name.trim() : ""
     const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl.trim() : ""
     const models = parseModelsInput(body.models)

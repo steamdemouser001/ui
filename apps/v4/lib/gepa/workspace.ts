@@ -4,9 +4,9 @@ import path from "node:path"
 
 import { evaluateToolCall } from "./constraints"
 import { runSandboxedCommand, type SandboxResult } from "./sandbox"
-import { ensureDir, readSettings, workspacePath } from "./storage"
+import { ensureDir, filesPath, readSettings, workspacePath } from "./storage"
 
-export { workspacePath }
+export { filesPath, workspacePath }
 
 /** 单个文本文件允许读取的最大字节数。 */
 export const MAX_WORKSPACE_FILE_BYTES = 512 * 1024
@@ -100,7 +100,7 @@ export function resolveWorkspaceFile(
     throw new WorkspacePathError("文件路径包含 Windows 保留名称")
   }
 
-  const base = workspacePath(taskId)
+  const base = filesPath(taskId)
   const target = path.resolve(base, ...segments)
   const relative = path.relative(base, target)
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
@@ -152,7 +152,7 @@ async function assertRealPathInside(
 export async function listWorkspaceFiles(
   taskId: string
 ): Promise<WorkspaceEntry[]> {
-  const base = workspacePath(taskId)
+  const base = filesPath(taskId)
   const entries: WorkspaceEntry[] = []
 
   const walk = async (
@@ -216,7 +216,7 @@ export async function readWorkspaceFile(
   taskId: string,
   relativePath: string
 ): Promise<string> {
-  const base = workspacePath(taskId)
+  const base = filesPath(taskId)
   const target = resolveWorkspaceFile(taskId, relativePath)
   await assertRealPathInside(base, target)
 
@@ -265,7 +265,7 @@ export async function writeWorkspaceFile(
     throw new WorkspacePolicyError(policy.reason)
   }
 
-  const base = workspacePath(taskId)
+  const base = filesPath(taskId)
   const target = resolveWorkspaceFile(taskId, relativePath)
   await ensureDir(base)
   await assertRealPathInside(base, target)
@@ -286,7 +286,9 @@ export async function runWorkspaceCommand(
   taskId: string,
   command: string
 ): Promise<SandboxResult> {
-  return runSandboxedCommand({ command, taskId })
+  const cwd = filesPath(taskId)
+  await ensureDir(cwd)
+  return runSandboxedCommand({ command, cwd })
 }
 
 /** 统计工作空间文件数、总大小与最近修改时间。 */

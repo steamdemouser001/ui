@@ -7,8 +7,10 @@ import {
   createDefaultAgents,
   createDefaultSettings,
   DEFAULT_ITERATION,
+  normalizeHarness,
   normalizeProviderGeneration,
 } from "./defaults"
+import { assertCleanText } from "./text"
 import type {
   AgentConfig,
   AgentId,
@@ -23,6 +25,8 @@ import type {
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 const RUN_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/
+const SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+const ROLLOUT_COPY_SKIP = new Set(["node_modules", ".next", ".turbo"])
 
 export function getDataRoot(): string {
   const configured = process.env.GEPA_DATA_DIR
@@ -57,6 +61,66 @@ export function assertSafeRunId(value: string): string {
 
 export function workspacePath(taskId: string): string {
   return dataPath("workspaces", assertSafeId(taskId, "taskId"))
+}
+
+/** 用户可见的工作空间文件目录，也是每次 rollout 的基准快照来源。 */
+export function filesPath(taskId: string): string {
+  return path.join(workspacePath(taskId), "files")
+}
+
+function assertSafeSegment(value: string, label: string): string {
+  if (!SEGMENT_PATTERN.test(value)) {
+    throw new Error(
+      `${label} 不合法：${value}（只允许字母、数字、下划线和连字符）`
+    )
+  }
+  return value
+}
+
+export function rolloutsPath(taskId: string, runId: string): string {
+  return path.join(
+    workspacePath(taskId),
+    "rollouts",
+    assertSafeRunId(runId)
+  )
+}
+
+export function rolloutPath(
+  taskId: string,
+  runId: string,
+  candidateId: string,
+  exampleId: string
+): string {
+  return path.join(
+    rolloutsPath(taskId, runId),
+    assertSafeSegment(candidateId, "candidateId"),
+    assertSafeSegment(exampleId, "exampleId")
+  )
+}
+
+/**
+ * 为一次 rollout 准备干净目录：把 files/ 的内容复制进去。
+ * 父代与子代、不同样本各自独立，避免文件改动互相污染。
+ */
+export async function prepareRollout(
+  taskId: string,
+  runId: string,
+  candidateId: string,
+  exampleId: string
+): Promise<string> {
+  const target = rolloutPath(taskId, runId, candidateId, exampleId)
+  await fs.rm(target, { recursive: true, force: true })
+  await ensureDir(target)
+  try {
+    await fs.cp(filesPath(taskId), target, {
+      recursive: true,
+      force: true,
+      filter: (source) => !ROLLOUT_COPY_SKIP.has(path.basename(source)),
+    })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  return target
 }
 
 export async function ensureDir(dir: string): Promise<void> {
@@ -208,6 +272,7 @@ export async function readSettings(): Promise<GlobalSettings> {
   return {
     ...merged,
     version: merged.version ?? defaults.version,
+    harness: normalizeHarness(merged.harness),
     updatedAt: merged.updatedAt ?? defaults.updatedAt,
   }
 }
@@ -221,8 +286,10 @@ export async function writeSettings(
     const next: GlobalSettings = {
       ...merged,
       version: current.version,
+      harness: normalizeHarness(merged.harness),
       updatedAt: new Date().toISOString(),
     }
+    assertCleanText(next, "全局设置")
     await writeJson("config/settings.json", next)
     return next
   })
@@ -245,6 +312,7 @@ export async function readProviders(): Promise<LlmProvider[]> {
 }
 
 export async function writeProviders(providers: LlmProvider[]): Promise<void> {
+  assertCleanText(providers, "供应商配置")
   await withLock("providers", () =>
     writeJson("config/providers.json", providers)
   )
@@ -323,6 +391,7 @@ export async function readAgents(): Promise<AgentConfig[]> {
 }
 
 export async function writeAgents(agents: AgentConfig[]): Promise<void> {
+  assertCleanText(agents, "Agent 配置")
   await withLock("agents", () => writeJson("config/agents.json", agents))
 }
 
@@ -403,11 +472,16 @@ export async function readTask(id: string): Promise<TaskRecord | null> {
     updatedAt: meta.updatedAt ?? createdAt,
     runId: meta.runId ?? null,
     notes: meta.notes ?? "",
+    testCommand:
+      typeof meta.testCommand === "string" && meta.testCommand.trim()
+        ? meta.testCommand.trim()
+        : undefined,
   }
 }
 
 export async function writeTask(task: TaskRecord): Promise<void> {
   const taskId = assertSafeId(task.id, "taskId")
+  assertCleanText(task, `任务「${taskId}」`)
   await withLock(`task:${taskId}`, async () => {
     const { modules, dataset, ...meta } = task
     await ensureDir(path.join(workspacePath(taskId), "runs"))

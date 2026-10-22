@@ -10,7 +10,12 @@ import {
   TrophyIcon,
 } from "lucide-react"
 
-import type { Candidate, IterationRecord } from "@/lib/gepa/types"
+import type {
+  Candidate,
+  ExampleTrace,
+  IterationRecord,
+  TraceStep,
+} from "@/lib/gepa/types"
 import { Badge } from "@/registry/new-york-v4/ui/badge"
 import {
   Card,
@@ -40,6 +45,7 @@ import {
 import {
   formatClock,
   formatDateTime,
+  formatDuration,
   formatScore,
   LOG_LEVEL_META,
   percent,
@@ -121,6 +127,238 @@ function LogList({ detail }: { detail: TaskDetailData }) {
   )
 }
 
+/** 金额格式：固定 4 位小数，例如 $0.0654。 */
+function formatUsd(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `$${value.toFixed(4)}`
+    : "—"
+}
+
+function TraceField({
+  label,
+  value,
+}: {
+  label: string
+  value: React.ReactNode
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <div className="text-sm break-words whitespace-pre-wrap">{value}</div>
+    </div>
+  )
+}
+
+function TraceStepItem({
+  step,
+  index,
+}: {
+  step: TraceStep
+  index: number
+}) {
+  return (
+    <li className="space-y-2 rounded-md border bg-muted/20 p-2.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        <Badge variant="outline" className="tabular-nums">
+          步骤 {index + 1}
+        </Badge>
+        <span className="text-sm font-medium">{step.moduleName}</span>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          {step.moduleId}
+        </span>
+        <span className="tabular-nums text-muted-foreground">
+          耗时 {formatDuration(step.durationMs)}
+        </span>
+        {typeof step.exitCode === "number" && (
+          <Badge
+            variant={step.exitCode === 0 ? "secondary" : "destructive"}
+            className="tabular-nums"
+          >
+            退出码 {step.exitCode}
+          </Badge>
+        )}
+        {typeof step.costUsd === "number" && (
+          <span className="tabular-nums text-muted-foreground">
+            成本 {formatUsd(step.costUsd)}
+          </span>
+        )}
+      </div>
+
+      {step.toolCalls && step.toolCalls.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground">
+            工具调用 {step.toolCalls.length} 次
+          </p>
+          <ul className="space-y-1.5">
+            {step.toolCalls.map((call, callIndex) => (
+              <li
+                key={`${call.name}-${callIndex}`}
+                className="rounded border bg-background/60 p-2"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs font-medium">
+                    {call.name}
+                  </span>
+                  {call.isError && (
+                    <Badge variant="destructive" className="text-[10px]">
+                      失败
+                    </Badge>
+                  )}
+                </div>
+                <div className="mt-1.5 space-y-1">
+                  <p className="text-[11px] text-muted-foreground">input</p>
+                  <pre className="max-h-32 overflow-auto rounded bg-muted/40 p-1.5 font-mono text-xs break-words whitespace-pre-wrap">
+                    {call.input}
+                  </pre>
+                  {call.output && (
+                    <>
+                      <p className="text-[11px] text-muted-foreground">
+                        output
+                      </p>
+                      <pre className="max-h-32 overflow-auto rounded bg-muted/40 p-1.5 font-mono text-xs break-words whitespace-pre-wrap">
+                        {call.output}
+                      </pre>
+                    </>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {step.stdout && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">stdout</p>
+          <pre className="max-h-40 overflow-auto rounded bg-muted/40 p-2 font-mono text-xs break-words whitespace-pre-wrap">
+            {step.stdout}
+          </pre>
+        </div>
+      )}
+
+      {step.stderr && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">stderr</p>
+          <pre className="max-h-40 overflow-auto rounded border border-destructive/30 bg-destructive/5 p-2 font-mono text-xs text-destructive break-words whitespace-pre-wrap">
+            {step.stderr}
+          </pre>
+        </div>
+      )}
+    </li>
+  )
+}
+
+function ExampleTraceCard({
+  trace,
+  index,
+}: {
+  trace: ExampleTrace
+  index: number
+}) {
+  const steps = trace.steps ?? []
+
+  return (
+    <div className="space-y-3 rounded-lg border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono text-sm font-medium">{trace.exampleId}</span>
+        <Badge variant="secondary" className="tabular-nums">
+          分数 {formatScore(trace.score)}
+        </Badge>
+        {trace.error && <Badge variant="destructive">执行失败</Badge>}
+        <span className="ml-auto text-xs text-muted-foreground">
+          样本 {index + 1}
+        </span>
+      </div>
+
+      {trace.error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive break-words whitespace-pre-wrap">
+          {trace.error}
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <TraceField label="输入" value={trace.input || "—"} />
+        {trace.expected && (
+          <TraceField label="期望输出" value={trace.expected} />
+        )}
+        <TraceField label="最终输出" value={trace.output || "—"} />
+        <TraceField label="反馈" value={trace.feedback || "—"} />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">
+          执行步骤 {steps.length} 个
+        </p>
+        {steps.length === 0 ? (
+          <p className="text-xs text-muted-foreground">该样本没有执行步骤</p>
+        ) : (
+          <ol className="space-y-2">
+            {steps.map((step, stepIndex) => (
+              <TraceStepItem
+                key={`${step.moduleId}-${stepIndex}`}
+                step={step}
+                index={stepIndex}
+              />
+            ))}
+          </ol>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TraceDialog({
+  record,
+  moduleName,
+  onOpenChange,
+}: {
+  record: IterationRecord | null
+  moduleName: string | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const traces = record?.traces ?? []
+
+  return (
+    <Dialog open={record !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>
+            {record ? `第 ${record.index} 轮轨迹` : "迭代轨迹"}
+          </DialogTitle>
+          <DialogDescription>
+            {record
+              ? `改进前 ${formatScore(record.beforeScore)} → 改进后 ${formatScore(
+                  record.afterScore
+                )}，${
+                  record.accepted ? "该轮改进被接受" : "该轮改进未被接受"
+                }${moduleName ? ` · 模块 ${moduleName}` : ""}`
+              : ""}
+          </DialogDescription>
+        </DialogHeader>
+
+        {record &&
+          (traces.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              该轮没有轨迹
+            </p>
+          ) : (
+            <ScrollArea className="max-h-[70vh] pr-3">
+              <div className="space-y-3">
+                {traces.map((trace, index) => (
+                  <ExampleTraceCard
+                    key={`${trace.exampleId}-${index}`}
+                    trace={trace}
+                    index={index}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
+          ))}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function IterationTable({
   iterations,
   moduleNames,
@@ -129,82 +367,112 @@ function IterationTable({
   moduleNames: Map<string, string>
 }) {
   const rows = [...iterations].reverse()
+  const [selected, setSelected] = React.useState<IterationRecord | null>(null)
+
+  const selectedModuleName = selected
+    ? (moduleNames.get(selected.moduleId) ?? selected.moduleId)
+    : null
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <ListChecksIcon className="size-4" />
-          迭代记录
-        </CardTitle>
-        <CardDescription>
-          共 {iterations.length}{" "}
-          轮迭代，最新在前。改进后为空表示该轮未完成子代评估。
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            暂无迭代记录
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-16">轮次</TableHead>
-                <TableHead>模块</TableHead>
-                <TableHead className="w-20">改进前</TableHead>
-                <TableHead className="w-20">改进后</TableHead>
-                <TableHead className="w-20">结果</TableHead>
-                <TableHead>反思</TableHead>
-                <TableHead className="w-32">完成时间</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((record) => (
-                <TableRow key={`${record.index}-${record.candidateId}`}>
-                  <TableCell className="tabular-nums">
-                    第 {record.index} 轮
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {moduleNames.get(record.moduleId) ?? record.moduleId}
-                  </TableCell>
-                  <TableCell className="tabular-nums">
-                    {formatScore(record.beforeScore)}
-                  </TableCell>
-                  <TableCell className="tabular-nums">
-                    {formatScore(record.afterScore)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={record.accepted ? "secondary" : "outline"}
-                      className={
-                        record.accepted
-                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                          : ""
-                      }
-                    >
-                      {record.accepted ? "接受" : "拒绝"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="max-w-64">
-                    <p
-                      className="line-clamp-2 text-xs text-muted-foreground"
-                      title={record.reflection}
-                    >
-                      {record.reflection || "—"}
-                    </p>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {formatDateTime(record.finishedAt)}
-                  </TableCell>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ListChecksIcon className="size-4" />
+            迭代记录
+          </CardTitle>
+          <CardDescription>
+            共 {iterations.length}{" "}
+            轮迭代，最新在前。改进后为空表示该轮未完成子代评估。点击任意行查看该轮轨迹。
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {rows.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              暂无迭代记录
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16">轮次</TableHead>
+                  <TableHead>模块</TableHead>
+                  <TableHead className="w-20">改进前</TableHead>
+                  <TableHead className="w-20">改进后</TableHead>
+                  <TableHead className="w-20">结果</TableHead>
+                  <TableHead>反思</TableHead>
+                  <TableHead className="w-32">完成时间</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+              </TableHeader>
+              <TableBody>
+                {rows.map((record) => (
+                  <TableRow
+                    key={`${record.index}-${record.candidateId}`}
+                    tabIndex={0}
+                    onClick={() => setSelected(record)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        setSelected(record)
+                      }
+                    }}
+                    className="cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none"
+                    title={`查看第 ${record.index} 轮轨迹`}
+                  >
+                    <TableCell className="tabular-nums">
+                      第 {record.index} 轮
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {moduleNames.get(record.moduleId) ?? record.moduleId}
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      {formatScore(record.beforeScore)}
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      {formatScore(record.afterScore)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={record.accepted ? "secondary" : "outline"}
+                        className={
+                          record.accepted
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                            : ""
+                        }
+                      >
+                        {record.accepted ? "接受" : "拒绝"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="max-w-64">
+                      <p
+                        className="line-clamp-2 text-xs text-muted-foreground"
+                        title={record.reflection}
+                      >
+                        {record.reflection || "—"}
+                      </p>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        {formatDateTime(record.finishedAt)}
+                        <ChevronRightIcon className="size-3.5 shrink-0 opacity-60" />
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <TraceDialog
+        record={selected}
+        moduleName={selectedModuleName}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null)
+        }}
+      />
+    </>
   )
 }
 
@@ -399,6 +667,19 @@ export function RunTab({ detail }: { detail: TaskDetailData }) {
               反馈样本 {run.feedbackSplit.length} 个 · 帕累托样本{" "}
               {run.paretoSplit.length} 个
             </span>
+            {run.harness && (
+              <span>
+                Harness: {run.harness.kind} · 模型 {run.harness.model}
+                {run.harness.claudeVersion
+                  ? ` · 版本 ${run.harness.claudeVersion}`
+                  : ""}
+              </span>
+            )}
+            {typeof run.totalCostUsd === "number" && (
+              <span className="tabular-nums">
+                累计费用 {formatUsd(run.totalCostUsd)}
+              </span>
+            )}
           </div>
         </CardContent>
       </Card>

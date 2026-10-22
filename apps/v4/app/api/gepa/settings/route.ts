@@ -1,4 +1,4 @@
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import { readSettings, writeSettings } from "@/lib/gepa/storage"
 import type { GlobalSettings } from "@/lib/gepa/types"
 
@@ -15,7 +15,7 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
-    const body = (await request.json()) as Partial<GlobalSettings>
+    const body = (await readJsonBody(request)) as Partial<GlobalSettings>
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return fail("请求体必须是 JSON 对象")
     }

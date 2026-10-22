@@ -1,4 +1,4 @@
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import { listProviderModels, parseProviderKind } from "@/lib/gepa/providers"
 import { getProvider } from "@/lib/gepa/storage"
 import type { LlmProvider } from "@/lib/gepa/types"
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as Record<string, unknown>
+    const body = (await readJsonBody(request)) as Record<string, unknown>
     let provider: Pick<LlmProvider, "kind" | "baseUrl" | "apiKey">
 
     if (typeof body.providerId === "string" && body.providerId) {

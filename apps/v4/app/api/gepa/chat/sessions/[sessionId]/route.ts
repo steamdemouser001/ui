@@ -4,7 +4,7 @@ import {
   readChatSessionMessages,
   renameChatSession,
 } from "@/lib/gepa/chat-sessions"
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import { listTaskSummaries } from "@/lib/gepa/task-service"
 
 export const runtime = "nodejs"
@@ -35,7 +35,7 @@ export async function GET(_request: Request, context: RouteContext) {
 
 export async function PATCH(request: Request, context: RouteContext) {
   const { sessionId } = await context.params
-  const body = await request.json().catch(() => null)
+  const body = await readJsonBody(request).catch(() => null)
   if (!isRecord(body)) {
     return fail("请求体必须是 JSON 对象")
   }

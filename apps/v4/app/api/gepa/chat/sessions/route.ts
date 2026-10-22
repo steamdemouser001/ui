@@ -1,5 +1,5 @@
 import { createChatSession, listChatSessions } from "@/lib/gepa/chat-sessions"
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import { listTaskSummaries } from "@/lib/gepa/task-service"
 
 export const runtime = "nodejs"
@@ -22,7 +22,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}))
+  const body = await readJsonBody(request).catch(() => ({}))
   if (!isRecord(body)) {
     return fail("请求体必须是 JSON 对象")
   }

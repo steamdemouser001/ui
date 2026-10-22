@@ -100,7 +100,10 @@ function applyOptions(task: TaskRecord, options: StartRunOptions): boolean {
   return changed
 }
 
-function createRun(task: TaskRecord, options: StartRunOptions = {}): RunState {
+async function createRun(
+  task: TaskRecord,
+  options: StartRunOptions = {}
+): Promise<RunState> {
   if (task.modules.length === 0) {
     throw new Error(`任务「${task.name}」没有技能模块，无法运行`)
   }
@@ -108,6 +111,7 @@ function createRun(task: TaskRecord, options: StartRunOptions = {}): RunState {
     throw new Error(`任务「${task.name}」没有数据集，无法运行`)
   }
 
+  const settings = await readSettings()
   const split = splitDataset(task.dataset, task.iteration.paretoSize)
   // 数据集过小时帕累托集可能为空；退化为复用反馈集，保证选择与评估仍可进行。
   const paretoSplit =
@@ -131,12 +135,17 @@ function createRun(task: TaskRecord, options: StartRunOptions = {}): RunState {
     moduleCursor: 0,
     startedAt: now,
     updatedAt: now,
+    harness: {
+      kind: settings.harness.kind,
+      model: settings.harness.model,
+    },
+    totalCostUsd: 0,
     control: { pauseRequested: false, stopRequested: false },
   }
   addLog(
     run,
     "info",
-    `开始运行：预算 ${budget} 次 rollout，minibatch ${task.iteration.minibatchSize}，帕累托样本 ${paretoSplit.length} 个，反馈样本 ${split.feedback.length} 个`
+    `开始运行：harness ${settings.harness.kind}，预算 ${budget} 次 rollout，minibatch ${task.iteration.minibatchSize}，帕累托样本 ${paretoSplit.length} 个，反馈样本 ${split.feedback.length} 个`
   )
   return run
 }
@@ -244,7 +253,7 @@ async function runLoop(
         taskId,
         runId: run.id,
         settings,
-      })
+      }, { signal })
       Object.assign(run, next)
       run.updatedAt = nowIso()
       const status = run.status as RunState["status"]
@@ -278,7 +287,11 @@ async function runLoop(
   }
 }
 
-async function stepLoop(taskId: string, run: RunState): Promise<void> {
+async function stepLoop(
+  taskId: string,
+  run: RunState,
+  signal: AbortSignal
+): Promise<void> {
   try {
     const task = await requireTask(taskId)
     const settings = await readSettings()
@@ -286,7 +299,7 @@ async function stepLoop(taskId: string, run: RunState): Promise<void> {
       taskId,
       runId: run.id,
       settings,
-    })
+    }, { signal })
     Object.assign(run, next)
     run.updatedAt = nowIso()
 
@@ -357,7 +370,7 @@ async function startRunInternal(
     }
   }
 
-  const run = createRun(task, options)
+  const run = await createRun(task, options)
   await writeRun(run)
   await syncTask(task, run)
   launch(taskId, run, (signal) => runLoop(taskId, run, signal))
@@ -432,7 +445,7 @@ export async function stepRun(taskId: string): Promise<RunState> {
     run.status === "failed" ||
     run.status === "stopped"
   ) {
-    run = createRun(task)
+    run = await createRun(task)
   } else {
     run.control = { pauseRequested: false, stopRequested: false }
     run.error = undefined
@@ -443,7 +456,7 @@ export async function stepRun(taskId: string): Promise<RunState> {
   addLog(run, "info", "单步执行：开始一轮迭代")
   await writeRun(run)
   await syncTask(task, run)
-  launch(taskId, run, () => stepLoop(taskId, run))
+  launch(taskId, run, (signal) => stepLoop(taskId, run, signal))
   return run
 }
 

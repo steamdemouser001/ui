@@ -57,10 +57,21 @@ export function SkillTab({ taskId, task, onRefresh }: SkillTabProps) {
   const [dirty, setDirty] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
 
+  const [testCommand, setTestCommand] = React.useState(
+    () => task.testCommand ?? ""
+  )
+  const [commandDirty, setCommandDirty] = React.useState(false)
+  const [commandSaving, setCommandSaving] = React.useState(false)
+
   React.useEffect(() => {
     if (dirty) return
     setModules(task.modules.map((module) => ({ ...module })))
   }, [task.modules, dirty])
+
+  React.useEffect(() => {
+    if (commandDirty) return
+    setTestCommand(task.testCommand ?? "")
+  }, [task.testCommand, commandDirty])
 
   function updateModule(index: number, patch: Partial<SkillModule>) {
     setModules((current) =>
@@ -144,6 +155,22 @@ export function SkillTab({ taskId, task, onRefresh }: SkillTabProps) {
       toast.error(errorText(error, "保存技能模块失败"))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleSaveCommand() {
+    setCommandSaving(true)
+    try {
+      await apiPatch<{ task: TaskRecord }>(`/api/gepa/tasks/${taskId}`, {
+        testCommand,
+      })
+      setCommandDirty(false)
+      toast.success("评估命令已保存")
+      await onRefresh()
+    } catch (error) {
+      toast.error(errorText(error, "保存评估命令失败"))
+    } finally {
+      setCommandSaving(false)
     }
   }
 
@@ -263,6 +290,51 @@ export function SkillTab({ taskId, task, onRefresh }: SkillTabProps) {
           </Card>
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+            评估命令（可选）
+            {commandDirty && <Badge variant="secondary">未保存</Badge>}
+          </CardTitle>
+          <CardDescription>
+            命令会在每次 rollout
+            的隔离工作目录中执行；退出码 0 记 1 分，非 0 记 0
+            分；stdout/stderr 会作为反馈。留空则使用评估器 LLM 打分。示例：
+            <code className="mx-1 font-mono">npm test</code>、
+            <code className="mx-1 font-mono">node -e &quot;...&quot;</code>。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="test-command">评估命令</Label>
+            <Textarea
+              id="test-command"
+              rows={3}
+              value={testCommand}
+              onChange={(event) => {
+                setTestCommand(event.target.value)
+                setCommandDirty(true)
+              }}
+              className="font-mono text-sm"
+              placeholder="例如：npm test"
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button
+              onClick={() => void handleSaveCommand()}
+              disabled={!commandDirty || commandSaving}
+            >
+              {commandSaving ? (
+                <Loader2Icon className="animate-spin" />
+              ) : (
+                <SaveIcon />
+              )}
+              保存
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <p className="text-xs text-muted-foreground">
         提示：运行中修改提示词不会影响当前运行已生成的候选，只会影响后续新建的运行。

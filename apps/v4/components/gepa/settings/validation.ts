@@ -1,11 +1,12 @@
 import type {
   BashConstraints,
+  HarnessConfig,
   IterationDefaults,
   MonitorConfig,
   ToolConstraints,
 } from "@/lib/gepa/types"
 
-import type { IterationDraft, MonitorDraft } from "./types"
+import type { HarnessDraft, IterationDraft, MonitorDraft } from "./types"
 
 export interface NumberSpec {
   min: number
@@ -38,6 +39,25 @@ export const NUMBER_SPECS = {
     label: "缓存单价",
   },
   retentionDays: { min: 1, max: 3650, integer: true, label: "指标保留天数" },
+  maxUsdPerRollout: {
+    min: 0,
+    max: 1_000_000,
+    integer: false,
+    label: "单次 rollout 成本上限",
+  },
+  maxUsdPerRun: {
+    min: 0,
+    max: 1_000_000,
+    integer: false,
+    label: "单次运行成本上限",
+  },
+  timeoutMs: {
+    min: 10_000,
+    max: 3_600_000,
+    integer: true,
+    label: "执行超时时间",
+  },
+  maxConcurrent: { min: 1, max: 16, integer: true, label: "最大并发数" },
 } satisfies Record<string, NumberSpec>
 
 export type NumberFieldKey = keyof typeof NUMBER_SPECS
@@ -140,6 +160,41 @@ export function parseMonitorDraft(
   }
   if (Object.keys(errors).length > 0) {
     return { ok: false, message: "请修正标红的监控与成本字段", errors }
+  }
+  return { ok: true, value }
+}
+
+const DEFAULT_HARNESS_TOOLS = ["Read", "Edit", "Write", "Bash"]
+
+function parseAllowedTools(raw: string): string[] {
+  const items = raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const deduped = [...new Set(items)]
+  return deduped.length > 0 ? deduped : [...DEFAULT_HARNESS_TOOLS]
+}
+
+export function parseHarnessDraft(
+  draft: HarnessDraft
+): ParseResult<HarnessConfig> {
+  const errors: Record<string, string> = {}
+  const value: HarnessConfig = {
+    kind: draft.kind,
+    claudePath: draft.claudePath.trim() || "claude",
+    model: draft.model.trim(),
+    allowedTools: parseAllowedTools(draft.allowedTools),
+    maxUsdPerRollout: readDraftNumber(
+      draft.maxUsdPerRollout,
+      "maxUsdPerRollout",
+      errors
+    ),
+    maxUsdPerRun: readDraftNumber(draft.maxUsdPerRun, "maxUsdPerRun", errors),
+    timeoutMs: readDraftNumber(draft.timeoutMs, "timeoutMs", errors),
+    maxConcurrent: readDraftNumber(draft.maxConcurrent, "maxConcurrent", errors),
+  }
+  if (Object.keys(errors).length > 0) {
+    return { ok: false, message: "请修正标红的 Harness 字段", errors }
   }
   return { ok: true, value }
 }

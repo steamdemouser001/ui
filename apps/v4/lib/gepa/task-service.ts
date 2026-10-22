@@ -5,6 +5,7 @@ import path from "node:path"
 import { isRunActive } from "./run-manager"
 import {
   ensureDir,
+  filesPath,
   listRuns,
   listTasks,
   readOrchestratorMessages,
@@ -52,6 +53,7 @@ export interface CreateTaskInput {
   prompt?: string
   datasetText?: string
   iteration?: Partial<IterationDefaults>
+  testCommand?: string
 }
 
 export interface UpdateTaskInput {
@@ -61,6 +63,7 @@ export interface UpdateTaskInput {
   dataset?: DatasetExample[]
   iteration?: Partial<IterationDefaults>
   notes?: string
+  testCommand?: string
 }
 
 export interface RunSummary {
@@ -417,6 +420,8 @@ function buildReadme(task: TaskRecord): string {
     "",
     "## 工作空间结构",
     "",
+    "- `files/`：任务工作文件，也是每次 rollout 的基准快照来源（工作空间页只显示这里）",
+    "- `rollouts/<runId>/<candidateId>/<exampleId>/`：每次 rollout 的独立工作副本",
     "- `task.json`：任务元数据",
     "- `skill.json`：技能模块",
     "- `dataset.jsonl`：数据集（每行一个 JSON 示例）",
@@ -425,7 +430,7 @@ function buildReadme(task: TaskRecord): string {
     "- `runs/<runId>/iteration-<n>.json`：每轮迭代产物",
     "- `artifacts/`：预留产物目录",
     "",
-    "该目录由 GEPA 控制台自动维护，可直接编辑文本文件；写入会经过全局工具约束校验。",
+    "`files/` 中的文件会经过全局工具约束校验；控制文件由 GEPA 控制台自动维护。",
     "",
   ].join("\n")
 }
@@ -492,10 +497,15 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
     updatedAt: now,
     runId: null,
     notes: "",
+    testCommand:
+      typeof input.testCommand === "string" && input.testCommand.trim()
+        ? input.testCommand.trim()
+        : undefined,
   }
 
   const dir = workspacePath(id)
   await ensureDir(dir)
+  await ensureDir(filesPath(id))
   await ensureDir(path.join(dir, "runs"))
   await ensureDir(path.join(dir, "artifacts"))
   await writeTask(task)
@@ -539,6 +549,12 @@ export async function updateTask(
   }
   if (patch.notes !== undefined) {
     task.notes = typeof patch.notes === "string" ? patch.notes : ""
+  }
+  if (patch.testCommand !== undefined) {
+    task.testCommand =
+      typeof patch.testCommand === "string" && patch.testCommand.trim()
+        ? patch.testCommand.trim()
+        : undefined
   }
 
   task.status = deriveStatus(task)

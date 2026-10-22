@@ -4,8 +4,10 @@ import * as React from "react"
 import { Loader2Icon } from "lucide-react"
 import { toast } from "sonner"
 
+import { apiGet } from "@/lib/gepa/client"
 import type {
   GlobalSettings,
+  HarnessConfig,
   IterationDefaults,
   MonitorConfig,
 } from "@/lib/gepa/types"
@@ -30,19 +32,39 @@ import {
 import { Switch } from "@/registry/new-york-v4/ui/switch"
 
 import type {
+  HarnessDraft,
   IterationDraft,
   MonitorDraft,
   SettingsAction,
   SettingsDraft,
 } from "./types"
-import { omitKey } from "./utils"
-import { parseIterationDraft, parseMonitorDraft } from "./validation"
+import { errorText, omitKey } from "./utils"
+import {
+  parseHarnessDraft,
+  parseIterationDraft,
+  parseMonitorDraft,
+} from "./validation"
+
+interface HarnessStatus {
+  available: boolean
+  version: string
+  loggedIn: boolean
+  authMethod?: string
+  apiProvider?: string
+  error?: string
+}
+
+interface HarnessStatusResponse {
+  config: HarnessConfig
+  status: HarnessStatus
+}
 
 interface SettingsFormProps {
   settings: GlobalSettings
   savingAction: SettingsAction | null
   onSaveIteration: (value: IterationDefaults) => Promise<GlobalSettings | null>
   onSaveMonitor: (value: MonitorConfig) => Promise<GlobalSettings | null>
+  onSaveHarness: (value: HarnessConfig) => Promise<GlobalSettings | null>
 }
 
 function iterationToDraft(iteration: IterationDefaults): IterationDraft {
@@ -65,10 +87,24 @@ function monitorToDraft(monitor: MonitorConfig): MonitorDraft {
   }
 }
 
+function harnessToDraft(harness: HarnessConfig): HarnessDraft {
+  return {
+    kind: harness.kind,
+    claudePath: harness.claudePath,
+    model: harness.model,
+    allowedTools: harness.allowedTools.join(","),
+    maxUsdPerRollout: String(harness.maxUsdPerRollout),
+    maxUsdPerRun: String(harness.maxUsdPerRun),
+    timeoutMs: String(harness.timeoutMs),
+    maxConcurrent: String(harness.maxConcurrent),
+  }
+}
+
 function toDraft(settings: GlobalSettings): SettingsDraft {
   return {
     ...iterationToDraft(settings.iteration),
     ...monitorToDraft(settings.monitor),
+    ...harnessToDraft(settings.harness),
   }
 }
 
@@ -117,6 +153,7 @@ export function SettingsForm({
   savingAction,
   onSaveIteration,
   onSaveMonitor,
+  onSaveHarness,
 }: SettingsFormProps) {
   const [draft, setDraft] = React.useState<SettingsDraft>(() =>
     toDraft(settings)
@@ -127,10 +164,20 @@ export function SettingsForm({
   const [monitorErrors, setMonitorErrors] = React.useState<
     Record<string, string>
   >({})
+  const [harnessErrors, setHarnessErrors] = React.useState<
+    Record<string, string>
+  >({})
+  const [checkingHarness, setCheckingHarness] = React.useState(false)
+  const [harnessStatus, setHarnessStatus] =
+    React.useState<HarnessStatus | null>(null)
+  const [harnessCheckError, setHarnessCheckError] = React.useState<
+    string | null
+  >(null)
 
   const busy = savingAction !== null
   const savingIteration = savingAction === "iteration"
   const savingMonitor = savingAction === "monitor"
+  const savingHarness = savingAction === "harness"
 
   function updateField<K extends keyof SettingsDraft>(
     key: K,
@@ -139,6 +186,7 @@ export function SettingsForm({
     setDraft((current) => ({ ...current, [key]: value }))
     setIterationErrors((current) => omitKey(current, key))
     setMonitorErrors((current) => omitKey(current, key))
+    setHarnessErrors((current) => omitKey(current, key))
   }
 
   async function handleSaveIteration() {
@@ -172,6 +220,41 @@ export function SettingsForm({
         ...current,
         ...monitorToDraft(updated.monitor),
       }))
+    }
+  }
+
+  async function handleSaveHarness() {
+    const result = parseHarnessDraft(draft)
+    if (!result.ok) {
+      setHarnessErrors(result.errors)
+      toast.error(result.message)
+      return
+    }
+    setHarnessErrors({})
+    const updated = await onSaveHarness(result.value)
+    if (updated) {
+      setDraft((current) => ({
+        ...current,
+        ...harnessToDraft(updated.harness),
+      }))
+    }
+  }
+
+  async function handleCheckHarness() {
+    setCheckingHarness(true)
+    setHarnessCheckError(null)
+    try {
+      const data = await apiGet<HarnessStatusResponse>(
+        "/api/gepa/harness/status"
+      )
+      setHarnessStatus(data.status)
+    } catch (error) {
+      const message = errorText(error, "检查 Claude Code 失败")
+      setHarnessStatus(null)
+      setHarnessCheckError(message)
+      toast.error(message)
+    } finally {
+      setCheckingHarness(false)
     }
   }
 
@@ -276,6 +359,179 @@ export function SettingsForm({
           <Button onClick={() => void handleSaveIteration()} disabled={busy}>
             {savingIteration && <Loader2Icon className="animate-spin" />}
             保存迭代参数
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>执行 Harness</CardTitle>
+          <CardDescription>
+            选择 rollout 的执行方式；claude-code 模式通过 Claude Code
+            会话执行，可配置成本与并发限制。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="settings-harness-kind">执行器类型</Label>
+              <Select
+                value={draft.kind}
+                disabled={busy}
+                onValueChange={(value) =>
+                  updateField("kind", value as SettingsDraft["kind"])
+                }
+              >
+                <SelectTrigger
+                  id="settings-harness-kind"
+                  className="w-full"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="llm">llm（单次 LLM 补全）</SelectItem>
+                  <SelectItem value="claude-code">
+                    claude-code（Claude Code 会话）
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                llm 使用单次 LLM 补全执行 rollout；claude-code
+                通过 Claude Code 会话执行。
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="settings-harness-claude-path">
+                Claude Code 路径
+              </Label>
+              <Input
+                id="settings-harness-claude-path"
+                value={draft.claudePath}
+                placeholder="claude"
+                disabled={busy}
+                onChange={(event) =>
+                  updateField("claudePath", event.target.value)
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                默认 claude；也可填写可执行文件的绝对路径。
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="settings-harness-model">模型</Label>
+              <Input
+                id="settings-harness-model"
+                value={draft.model}
+                placeholder="留空使用默认模型"
+                disabled={busy}
+                onChange={(event) => updateField("model", event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                留空表示使用 Claude Code
+                默认模型；可填 sonnet、opus 或完整模型名。
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="settings-harness-tools">允许工具</Label>
+              <Input
+                id="settings-harness-tools"
+                value={draft.allowedTools}
+                placeholder="Read,Edit,Write,Bash"
+                disabled={busy}
+                onChange={(event) =>
+                  updateField("allowedTools", event.target.value)
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                逗号分隔，保存时会自动去重；默认 Read,Edit,Write,Bash。
+              </p>
+            </div>
+            <NumberField
+              id="settings-harness-max-usd-rollout"
+              label="单次 rollout 成本上限（USD）"
+              hint="单次 rollout 允许消耗的美元上限，0 表示不限制。"
+              value={draft.maxUsdPerRollout}
+              error={harnessErrors.maxUsdPerRollout}
+              disabled={busy}
+              onChange={(value) => updateField("maxUsdPerRollout", value)}
+            />
+            <NumberField
+              id="settings-harness-max-usd-run"
+              label="单次运行成本上限（USD）"
+              hint="单次运行允许消耗的美元上限，0 表示不限制。"
+              value={draft.maxUsdPerRun}
+              error={harnessErrors.maxUsdPerRun}
+              disabled={busy}
+              onChange={(value) => updateField("maxUsdPerRun", value)}
+            />
+            <NumberField
+              id="settings-harness-timeout"
+              label="执行超时时间（毫秒）"
+              hint="单次执行的超时时间，10000-3600000。"
+              value={draft.timeoutMs}
+              error={harnessErrors.timeoutMs}
+              disabled={busy}
+              onChange={(value) => updateField("timeoutMs", value)}
+            />
+            <NumberField
+              id="settings-harness-max-concurrent"
+              label="最大并发数"
+              hint="同时执行的 rollout 数量，1-16。"
+              value={draft.maxConcurrent}
+              error={harnessErrors.maxConcurrent}
+              disabled={busy}
+              onChange={(value) => updateField("maxConcurrent", value)}
+            />
+          </div>
+          {harnessStatus || harnessCheckError ? (
+            <div className="space-y-1 rounded-md border px-3 py-2 text-sm">
+              {harnessCheckError ? (
+                <p className="text-destructive">
+                  检查失败：{harnessCheckError}
+                </p>
+              ) : harnessStatus ? (
+                <>
+                  <p>
+                    Claude Code：
+                    {harnessStatus.available ? "可用" : "不可用"}
+                  </p>
+                  {harnessStatus.version ? (
+                    <p>版本：{harnessStatus.version}</p>
+                  ) : null}
+                  <p>
+                    登录状态：{harnessStatus.loggedIn ? "已登录" : "未登录"}
+                  </p>
+                  {harnessStatus.authMethod ? (
+                    <p>认证方式：{harnessStatus.authMethod}</p>
+                  ) : null}
+                  {harnessStatus.apiProvider ? (
+                    <p>API 供应商：{harnessStatus.apiProvider}</p>
+                  ) : null}
+                  {harnessStatus.error ? (
+                    <p className="text-destructive">
+                      错误：{harnessStatus.error}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            检查 Claude Code 使用已保存的 Harness 配置，修改后请先保存。
+          </p>
+        </CardContent>
+        <CardFooter className="justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() => void handleCheckHarness()}
+            disabled={busy || checkingHarness}
+          >
+            {checkingHarness && <Loader2Icon className="animate-spin" />}
+            检查 Claude Code
+          </Button>
+          <Button onClick={() => void handleSaveHarness()} disabled={busy}>
+            {savingHarness && <Loader2Icon className="animate-spin" />}
+            保存 Harness 设置
           </Button>
         </CardFooter>
       </Card>

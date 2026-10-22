@@ -1,4 +1,4 @@
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import { createTask, listTaskSummaries } from "@/lib/gepa/task-service"
 import type { IterationDefaults } from "@/lib/gepa/types"
 
@@ -20,9 +20,9 @@ export async function GET() {
 export async function POST(request: Request) {
   let body: unknown
   try {
-    body = await request.json()
-  } catch {
-    return fail("请求体必须是合法的 JSON")
+    body = await readJsonBody(request)
+  } catch (error) {
+    return fail(errorMessage(error))
   }
   if (!isRecord(body)) {
     return fail("请求体必须是 JSON 对象")
@@ -42,6 +42,9 @@ export async function POST(request: Request) {
   if (body.iteration !== undefined && !isRecord(body.iteration)) {
     return fail("iteration 必须是 JSON 对象")
   }
+  if (body.testCommand !== undefined && typeof body.testCommand !== "string") {
+    return fail("testCommand 必须是字符串")
+  }
 
   try {
     const task = await createTask({
@@ -54,6 +57,8 @@ export async function POST(request: Request) {
       iteration: isRecord(body.iteration)
         ? (body.iteration as unknown as Partial<IterationDefaults>)
         : undefined,
+      testCommand:
+        typeof body.testCommand === "string" ? body.testCommand : undefined,
     })
     return ok({ task }, { status: 201 })
   } catch (error) {

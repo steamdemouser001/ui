@@ -1,4 +1,4 @@
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import { readTask } from "@/lib/gepa/storage"
 import {
   deleteTask,
@@ -37,9 +37,9 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   let body: unknown
   try {
-    body = await request.json()
-  } catch {
-    return fail("请求体必须是合法的 JSON")
+    body = await readJsonBody(request)
+  } catch (error) {
+    return fail(errorMessage(error))
   }
   if (!isRecord(body)) {
     return fail("请求体必须是 JSON 对象")
@@ -71,6 +71,12 @@ export async function PATCH(request: Request, context: RouteContext) {
   if (body.notes !== undefined) {
     if (typeof body.notes !== "string") return fail("notes 必须是字符串")
     patch.notes = body.notes
+  }
+  if (body.testCommand !== undefined) {
+    if (typeof body.testCommand !== "string") {
+      return fail("testCommand 必须是字符串")
+    }
+    patch.testCommand = body.testCommand
   }
 
   try {

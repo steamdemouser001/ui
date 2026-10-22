@@ -10,9 +10,9 @@ import {
 import {
   dataPath,
   ensureDir,
+  filesPath,
   getDataRoot,
   readSettings,
-  workspacePath,
 } from "./storage"
 
 export interface SandboxResult {
@@ -86,7 +86,7 @@ interface WorkingDirResult {
   error?: string
 }
 
-function terminateChild(child: ChildProcess): void {
+export function terminateChild(child: ChildProcess): void {
   const forceKill = () => {
     try {
       child.kill("SIGKILL")
@@ -153,7 +153,7 @@ async function resolveWorkingDir(
 
   if (taskId) {
     try {
-      const cwd = workspacePath(taskId)
+      const cwd = filesPath(taskId)
       await ensureDir(cwd)
       return { cwd }
     } catch (error) {
@@ -313,6 +313,174 @@ export async function runSandboxedCommand(options: {
       })
     }
 
+    child.stdout?.on("data", (chunk: Buffer) => collect(stdoutChunks, chunk))
+    child.stderr?.on("data", (chunk: Buffer) => collect(stderrChunks, chunk))
+    child.on("error", (error) => {
+      settle(null, `命令启动失败：${error.message}`)
+    })
+    child.on("close", (code) => {
+      settle(code)
+    })
+
+    timeoutTimer = setTimeout(() => {
+      timedOut = true
+      terminateChild(child)
+      fallbackTimer = setTimeout(() => {
+        settle(null, `命令执行超时（超过 ${timeoutMs}ms），已终止。`)
+      }, 2000)
+    }, timeoutMs)
+  })
+}
+
+export interface RawCommandOptions {
+  command: string
+  cwd: string
+  timeoutMs?: number
+  maxOutputBytes?: number
+  signal?: AbortSignal
+}
+
+/**
+ * 执行任务配置中的测试命令：不套用全局 bash 白名单（命令来自任务配置），
+ * 但仍限制在数据根目录内，并强制超时、输出上限与进程树终止。
+ */
+export async function runRawCommand(
+  options: RawCommandOptions
+): Promise<SandboxResult> {
+  const startedAt = Date.now()
+  const command = typeof options.command === "string" ? options.command : ""
+  const cwd = path.resolve(options.cwd)
+  const base: SandboxResult = {
+    allowed: false,
+    reason: "",
+    command,
+    cwd,
+    exitCode: null,
+    stdout: "",
+    stderr: "",
+    durationMs: 0,
+    truncated: false,
+  }
+  const early = (reason: string): SandboxResult => ({
+    ...base,
+    reason,
+    durationMs: Date.now() - startedAt,
+  })
+
+  if (!command.trim()) return early("命令为空，请输入要执行的命令。")
+  if (command.length > MAX_COMMAND_LENGTH) {
+    return early(
+      `命令过长（${command.length} 字符，上限 ${MAX_COMMAND_LENGTH} 字符）。`
+    )
+  }
+
+  const root = getDataRoot()
+  if (!isInside(root, cwd)) {
+    return early(`工作目录必须位于数据根目录内（${root}）。`)
+  }
+  try {
+    const stat = await fs.stat(cwd)
+    if (!stat.isDirectory()) return early(`工作目录不是目录：${cwd}`)
+  } catch {
+    return early(`工作目录不存在：${cwd}`)
+  }
+  if (options.signal?.aborted) return early("命令已取消。")
+
+  const timeoutMs = clamp(
+    options.timeoutMs ?? 30_000,
+    TIMEOUT_MIN,
+    TIMEOUT_MAX,
+    30_000
+  )
+  const maxOutputBytes = clamp(
+    options.maxOutputBytes ?? 100_000,
+    OUTPUT_MIN,
+    OUTPUT_MAX,
+    100_000
+  )
+
+  return await new Promise<SandboxResult>((resolve) => {
+    const stdoutChunks: Buffer[] = []
+    const stderrChunks: Buffer[] = []
+    let totalBytes = 0
+    let truncated = false
+    let timedOut = false
+    let settled = false
+    let aborted = false
+    let timeoutTimer: NodeJS.Timeout | null = null
+    let fallbackTimer: NodeJS.Timeout | null = null
+
+    const child = spawn(command, {
+      cwd,
+      windowsHide: true,
+      env: createSandboxEnv(),
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+      shell: true,
+    })
+
+    const collect = (target: Buffer[], chunk: Buffer) => {
+      if (truncated) return
+      const remaining = maxOutputBytes - totalBytes
+      if (remaining <= 0) {
+        truncated = true
+        return
+      }
+      if (chunk.length > remaining) {
+        target.push(chunk.subarray(0, remaining))
+        totalBytes = maxOutputBytes
+        truncated = true
+        return
+      }
+      target.push(chunk)
+      totalBytes += chunk.length
+    }
+
+    const onAbort = () => {
+      aborted = true
+      terminateChild(child)
+      fallbackTimer = setTimeout(() => settle(null, "命令已取消。"), 2000)
+    }
+
+    const settle = (exitCode: number | null, overrideReason?: string) => {
+      if (settled) return
+      settled = true
+      if (timeoutTimer) clearTimeout(timeoutTimer)
+      if (fallbackTimer) clearTimeout(fallbackTimer)
+      options.signal?.removeEventListener("abort", onAbort)
+
+      let reason = overrideReason ?? ""
+      if (!reason) {
+        if (aborted) {
+          reason = "命令已取消。"
+        } else if (timedOut) {
+          reason = `命令执行超时（超过 ${timeoutMs}ms），已终止。`
+        } else if (exitCode === 0) {
+          reason = "命令执行成功。"
+        } else if (exitCode === null) {
+          reason = "命令执行结束，但未获取到退出码。"
+        } else {
+          reason = `命令执行结束，退出码 ${exitCode}。`
+        }
+      }
+      if (truncated) {
+        reason = `${reason} 输出已截断（上限 ${maxOutputBytes} 字节）。`
+      }
+
+      resolve({
+        allowed: true,
+        reason,
+        command,
+        cwd,
+        exitCode,
+        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+        stderr: Buffer.concat(stderrChunks).toString("utf8"),
+        durationMs: Date.now() - startedAt,
+        truncated,
+      })
+    }
+
+    options.signal?.addEventListener("abort", onAbort, { once: true })
     child.stdout?.on("data", (chunk: Buffer) => collect(stdoutChunks, chunk))
     child.stderr?.on("data", (chunk: Buffer) => collect(stderrChunks, chunk))
     child.on("error", (error) => {

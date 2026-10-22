@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto"
 
+import { HarnessAbortError, runClaudeCode } from "./harness"
 import { parseJsonLoose, runAgent, runAgentJson } from "./llm"
+import { runRawCommand } from "./sandbox"
+import { prepareRollout } from "./storage"
 import type {
   Candidate,
   DatasetExample,
@@ -12,6 +15,7 @@ import type {
   RunState,
   SkillModule,
   TaskRecord,
+  ToolCallTrace,
   TraceStep,
 } from "./types"
 
@@ -33,6 +37,13 @@ export interface ExecutionResult {
   exampleId: string
   output: string
   steps: TraceStep[]
+  workspaceDir?: string
+  error?: string
+  exitCode?: number | null
+  stdout?: string
+  stderr?: string
+  toolCalls?: ToolCallTrace[]
+  costUsd?: number
 }
 
 export interface ExecuteCandidateOptions {
@@ -40,6 +51,8 @@ export interface ExecuteCandidateOptions {
   budget?: BudgetState
   /** 返回 true 时在当前样本边界停止执行。 */
   shouldStop?: () => boolean
+  /** 运行级取消信号；用于终止 Claude Code 子进程。 */
+  signal?: AbortSignal
 }
 
 export interface EvaluationResult {
@@ -50,6 +63,7 @@ export interface EvaluationResult {
 
 export interface RunIterationOptions {
   rng?: () => number
+  signal?: AbortSignal
 }
 
 interface EvaluatorPayload {
@@ -333,50 +347,146 @@ async function executeExample(
   task: TaskRecord,
   candidate: Candidate,
   example: DatasetExample,
-  meta: EngineMeta
+  meta: EngineMeta,
+  signal?: AbortSignal
 ): Promise<ExecutionResult> {
-  const constraints = describeConstraints(meta.settings.constraints)
+  const harness = meta.settings.harness
+  const useHarness = harness?.kind === "claude-code"
+  const constraints = useHarness
+    ? `允许的工具：${harness.allowedTools.join("、") || "无"}。当前目录是本次 rollout 的隔离副本，请直接在该目录内完成操作。`
+    : describeConstraints(meta.settings.constraints)
   const steps: TraceStep[] = []
   let previous = ""
   let output = ""
+  const allToolCalls: ToolCallTrace[] = []
+  let totalCostUsd = 0
+  let lastExitCode: number | null | undefined
+  let lastStdout = ""
+  let lastStderr = ""
+  let workspaceDir: string | undefined
+
+  if (useHarness) {
+    try {
+      workspaceDir = await prepareRollout(
+        task.id,
+        meta.runId,
+        candidate.id,
+        example.id
+      )
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      return {
+        exampleId: example.id,
+        output: "",
+        steps,
+        error: `无法准备 rollout 工作目录：${reason}`,
+      }
+    }
+  }
 
   for (const module of candidate.modules) {
     const startedAt = Date.now()
-    let text: string
-    let durationMs: number
-    try {
-      const result = await runAgent(
-        "executor",
-        {
+    let text = ""
+    let durationMs = 0
+
+    if (useHarness) {
+      try {
+        const result = await runClaudeCode({
+          config: harness,
+          cwd: workspaceDir as string,
           skill: module.prompt,
           input: example.input,
           previous,
           constraints,
-        },
-        llmMeta(meta)
-      )
-      text = result.text
-      durationMs = result.durationMs
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      throw new Error(
-        `任务「${task.name}」的模块「${module.name}」执行失败：${reason}`
-      )
+          taskId: task.id,
+          runId: meta.runId,
+          signal,
+        })
+        text = result.output
+        durationMs = result.durationMs
+        totalCostUsd += result.costUsd
+        lastExitCode = result.exitCode
+        lastStdout = result.stdout
+        lastStderr = result.stderr
+        allToolCalls.push(...result.toolCalls)
+        steps.push({
+          moduleId: module.id,
+          moduleName: module.name,
+          prompt: module.prompt,
+          input: steps.length === 0 ? example.input : previous,
+          output: text,
+          durationMs,
+          toolCalls: result.toolCalls,
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          costUsd: result.costUsd,
+        })
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        const aborted =
+          signal?.aborted === true || error instanceof HarnessAbortError
+        return {
+          exampleId: example.id,
+          output,
+          steps,
+          workspaceDir,
+          error: aborted
+            ? "Claude Code 执行已取消"
+            : `任务「${task.name}」的模块「${module.name}」执行失败：${reason}`,
+          exitCode: lastExitCode,
+          stdout: lastStdout,
+          stderr: lastStderr,
+          toolCalls: allToolCalls,
+          costUsd: totalCostUsd,
+        }
+      }
+    } else {
+      try {
+        const result = await runAgent(
+          "executor",
+          {
+            skill: module.prompt,
+            input: example.input,
+            previous,
+            constraints,
+          },
+          llmMeta(meta)
+        )
+        text = result.text
+        durationMs = result.durationMs
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        throw new Error(
+          `任务「${task.name}」的模块「${module.name}」执行失败：${reason}`
+        )
+      }
+
+      steps.push({
+        moduleId: module.id,
+        moduleName: module.name,
+        prompt: module.prompt,
+        input: steps.length === 0 ? example.input : previous,
+        output: text,
+        durationMs,
+      })
     }
 
-    steps.push({
-      moduleId: module.id,
-      moduleName: module.name,
-      prompt: module.prompt,
-      input: steps.length === 0 ? example.input : previous,
-      output: text,
-      durationMs,
-    })
     output = text
     previous = previous ? `${previous}\n\n${text}` : text
   }
 
-  return { exampleId: example.id, output, steps }
+  return {
+    exampleId: example.id,
+    output,
+    steps,
+    workspaceDir,
+    exitCode: lastExitCode,
+    stdout: lastStdout,
+    stderr: lastStderr,
+    toolCalls: allToolCalls,
+    costUsd: totalCostUsd,
+  }
 }
 
 /**
@@ -397,7 +507,9 @@ export async function executeCandidate(
     if (budget && budget.used >= budget.limit) break
     if (options.shouldStop?.()) break
     if (budget) budget.used += 1
-    results.push(await executeExample(task, candidate, example, meta))
+    results.push(
+      await executeExample(task, candidate, example, meta, options.signal)
+    )
   }
 
   return { results, executed: results.length }
@@ -407,10 +519,42 @@ export async function executeCandidate(
 export async function evaluateExample(
   task: TaskRecord,
   example: DatasetExample,
-  output: string,
+  execution: ExecutionResult,
   candidate: Candidate,
-  meta: EngineMeta
+  meta: EngineMeta,
+  signal?: AbortSignal
 ): Promise<EvaluationResult> {
+  const output = execution.output
+
+  if (execution.error) {
+    return {
+      score: 0,
+      feedback: `执行失败：${execution.error}`,
+      passed: false,
+    }
+  }
+
+  // 配置了测试命令且存在 rollout 工作目录时，用真实退出码评分。
+  if (task.testCommand && execution.workspaceDir) {
+    const test = await runRawCommand({
+      command: task.testCommand,
+      cwd: execution.workspaceDir,
+      timeoutMs: meta.settings.constraints.bash.timeoutMs,
+      maxOutputBytes: meta.settings.constraints.bash.maxOutputBytes,
+      signal,
+    })
+    const passed = test.allowed && test.exitCode === 0
+    const feedback = [
+      `测试命令：${task.testCommand}`,
+      `结果：${test.reason}`,
+      test.stdout ? `stdout：\n${truncate(test.stdout, 4000)}` : "",
+      test.stderr ? `stderr：\n${truncate(test.stderr, 4000)}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n")
+    return { score: passed ? 1 : 0, feedback, passed }
+  }
+
   const skill =
     candidate.modules.length > 0
       ? candidate.modules[candidate.modules.length - 1].prompt
@@ -445,15 +589,35 @@ function formatTraces(traces: ExampleTrace[], moduleId: string): string {
   return traces
     .map((trace, index) => {
       const steps = trace.steps.filter((step) => step.moduleId === moduleId)
-      const stepText =
-        steps.length > 0
-          ? steps
-              .map(
-                (step) =>
-                  `  模块输入：${truncate(step.input, 800)}\n  模块输出：${truncate(step.output, 1500)}`
-              )
-              .join("\n")
-          : "  （该模块未产生轨迹）"
+  const stepText =
+    steps.length > 0
+      ? steps
+          .map((step) => {
+            const toolText =
+              step.toolCalls && step.toolCalls.length > 0
+                ? `\n  工具调用：\n${step.toolCalls
+                    .map(
+                      (call, callIndex) =>
+                        `    ${callIndex + 1}. ${call.name}(${truncate(call.input, 400)})${
+                          call.isError ? " [失败]" : ""
+                        }${call.output ? `\n       结果：${truncate(call.output, 800)}` : ""}`
+                    )
+                    .join("\n")}`
+                : ""
+            const runText =
+              step.exitCode !== undefined && step.exitCode !== null
+                ? `\n  退出码：${step.exitCode}`
+                : ""
+            const stdoutText = step.stdout
+              ? `\n  stdout：${truncate(step.stdout, 1200)}`
+              : ""
+            const stderrText = step.stderr
+              ? `\n  stderr：${truncate(step.stderr, 1200)}`
+              : ""
+            return `  模块输入：${truncate(step.input, 800)}\n  模块输出：${truncate(step.output, 1500)}${toolText}${runText}${stdoutText}${stderrText}`
+          })
+          .join("\n")
+      : "  （该模块未产生轨迹）"
       return [
         `### 示例 ${index + 1}（${trace.exampleId}）`,
         `任务输入：${truncate(trace.input, 800)}`,
@@ -530,7 +694,8 @@ async function evaluateResults(
   candidate: Candidate,
   examples: DatasetExample[],
   results: ExecutionResult[],
-  meta: EngineMeta
+  meta: EngineMeta,
+  signal?: AbortSignal
 ): Promise<ExampleTrace[]> {
   const byId = new Map(examples.map((example) => [example.id, example]))
   const traces: ExampleTrace[] = []
@@ -540,9 +705,10 @@ async function evaluateResults(
     const evaluation = await evaluateExample(
       task,
       example,
-      result.output,
+      result,
       candidate,
-      meta
+      meta,
+      signal
     )
     traces.push({
       exampleId: example.id,
@@ -552,6 +718,7 @@ async function evaluateResults(
       score: evaluation.score,
       feedback: evaluation.feedback,
       steps: result.steps,
+      error: result.error,
     })
   }
   return traces
@@ -601,8 +768,26 @@ export async function runIteration(
     used: state.budgetUsed,
     limit: state.budget,
   }
+  state.totalCostUsd = state.totalCostUsd ?? 0
+  const maxUsdPerRun = meta.settings.harness?.maxUsdPerRun ?? 0
   const shouldStop = () =>
     state.control.pauseRequested || state.control.stopRequested
+  const addCost = (results: ExecutionResult[]) => {
+    const cost = results.reduce((sum, item) => sum + (item.costUsd ?? 0), 0)
+    if (cost > 0) {
+      state.totalCostUsd = (state.totalCostUsd ?? 0) + cost
+    }
+  }
+  const costLimitReached = () =>
+    maxUsdPerRun > 0 && (state.totalCostUsd ?? 0) >= maxUsdPerRun
+  const finishForCost = () => {
+    finish(
+      "completed",
+      `运行费用已达到上限（$${maxUsdPerRun}），运行结束`,
+      "warning"
+    )
+    return state
+  }
 
   const finish = (
     status: RunState["status"],
@@ -645,8 +830,9 @@ export async function runIteration(
         seed,
         seedExamples,
         meta,
-        { budget, shouldStop }
+        { budget, shouldStop, signal: options.signal }
       )
+      addCost(results)
       const byId = new Map(seedExamples.map((example) => [example.id, example]))
       for (const result of results) {
         const example = byId.get(result.exampleId)
@@ -654,9 +840,10 @@ export async function runIteration(
         const evaluation = await evaluateExample(
           task,
           example,
-          result.output,
+          result,
           seed,
-          meta
+          meta,
+          options.signal
         )
         seed.scores[result.exampleId] = evaluation.score
       }
@@ -671,6 +858,8 @@ export async function runIteration(
     state.bestCandidateId = seed.id
     state.paretoFrontier = [seed.id]
     state.budgetUsed = budget.used
+
+    if (costLimitReached()) return finishForCost()
 
     if (shouldStop()) {
       finish(stopStatus(), "收到停止/暂停请求，运行中止")
@@ -739,8 +928,9 @@ export async function runIteration(
     parent,
     minibatch,
     meta,
-    { budget, shouldStop }
+    { budget, shouldStop, signal: options.signal }
   )
+  addCost(beforeResults)
   state.budgetUsed = budget.used
 
   if (beforeResults.length === 0) {
@@ -757,7 +947,8 @@ export async function runIteration(
     parent,
     minibatch,
     beforeResults,
-    meta
+    meta,
+    options.signal
   )
   const beforeScore = average(beforeTraces.map((trace) => trace.score))
   addLog(
@@ -765,6 +956,8 @@ export async function runIteration(
     "info",
     `第 ${state.iteration + 1} 轮：候选 ${parent.id} 在 ${beforeTraces.length} 个样本上的平均分 ${beforeScore.toFixed(3)}`
   )
+
+  if (costLimitReached()) return finishForCost()
 
   if (shouldStop()) {
     finish(stopStatus(), "收到停止/暂停请求，本轮中止")
@@ -816,13 +1009,21 @@ export async function runIteration(
     child,
     minibatch,
     meta,
-    { budget, shouldStop }
+    { budget, shouldStop, signal: options.signal }
   )
+  addCost(afterResults)
   state.budgetUsed = budget.used
 
   const afterTraces =
     afterResults.length > 0
-      ? await evaluateResults(task, child, minibatch, afterResults, meta)
+      ? await evaluateResults(
+          task,
+          child,
+          minibatch,
+          afterResults,
+          meta,
+          options.signal
+        )
       : []
   // 仅当子代与父代在同样数量的样本上完成评估时才可比较。
   const afterScore =
@@ -856,16 +1057,20 @@ export async function runIteration(
       const { results } = await executeCandidate(task, child, [example], meta, {
         budget,
         shouldStop,
+        signal: options.signal,
       })
+      addCost(results)
       if (results.length === 0) break
       const [trace] = await evaluateResults(
         task,
         child,
         [example],
         results,
-        meta
+        meta,
+        options.signal
       )
       if (trace) child.scores[example.id] = trace.score
+      if (costLimitReached()) break
     }
 
     const paretoValues = Object.values(child.scores)
@@ -911,6 +1116,8 @@ export async function runIteration(
   state.iteration = nextIteration
   state.budgetUsed = budget.used
   state.updatedAt = nowIso()
+
+  if (costLimitReached()) return finishForCost()
 
   if (
     state.budgetUsed >= state.budget ||

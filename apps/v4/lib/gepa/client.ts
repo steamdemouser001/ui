@@ -24,7 +24,9 @@ async function request<T>(
     response = await fetch(url, {
       method,
       headers:
-        body === undefined ? undefined : { "Content-Type": "application/json" },
+        body === undefined
+          ? undefined
+          : { "Content-Type": "application/json; charset=utf-8" },
       body: body === undefined ? undefined : JSON.stringify(body),
       cache: "no-store",
     })
@@ -106,7 +108,7 @@ export async function apiStream(
     response = await fetch(url, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
         Accept: "text/event-stream",
       },
       body: JSON.stringify(body),

@@ -29,6 +29,7 @@ export interface MetricsSummary {
   cacheTokens: number
   estimatedCost: number
   cacheCost: number
+  harnessCost: number
   byAgent: Record<string, number>
   byTask: Record<string, number>
   byDay: {
@@ -51,6 +52,7 @@ export async function summarizeMetrics(): Promise<MetricsSummary> {
     cacheTokens: 0,
     estimatedCost: 0,
     cacheCost: 0,
+    harnessCost: 0,
     byAgent: {},
     byTask: {},
     byDay: [],
@@ -83,6 +85,10 @@ export async function summarizeMetrics(): Promise<MetricsSummary> {
     summary.inputTokens += inputTokens
     summary.outputTokens += outputTokens
     summary.cacheTokens += cacheTokens
+    summary.harnessCost +=
+      typeof call.costUsd === "number" && Number.isFinite(call.costUsd)
+        ? call.costUsd
+        : 0
 
     const agentKey = call.agentId || "unknown"
     summary.byAgent[agentKey] = (summary.byAgent[agentKey] ?? 0) + 1
@@ -113,8 +119,12 @@ export async function summarizeMetrics(): Promise<MetricsSummary> {
   const outputCost =
     (summary.outputTokens / 1_000_000) * settings.monitor.outputCostPerMillion
   summary.cacheCost = Math.round(cacheCost * 1_000_000) / 1_000_000
+  summary.harnessCost =
+    Math.round(summary.harnessCost * 1_000_000) / 1_000_000
   summary.estimatedCost =
-    Math.round((inputCost + cacheCost + outputCost) * 1_000_000) / 1_000_000
+    Math.round(
+      (inputCost + cacheCost + outputCost + summary.harnessCost) * 1_000_000
+    ) / 1_000_000
   summary.byDay = [...days.values()].sort((a, b) =>
     a.date.localeCompare(b.date)
   )

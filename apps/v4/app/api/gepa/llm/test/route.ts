@@ -1,4 +1,4 @@
-import { errorMessage, fail, ok } from "@/lib/gepa/http"
+import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import { logLlmCall } from "@/lib/gepa/metrics"
 import {
   callProvider,
@@ -16,7 +16,7 @@ const TEST_MESSAGES = [{ role: "user" as const, content: "请只回复：OK" }]
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as Record<string, unknown>
+    const body = (await readJsonBody(request)) as Record<string, unknown>
     let provider: LlmProvider
 
     if (typeof body.providerId === "string" && body.providerId) {

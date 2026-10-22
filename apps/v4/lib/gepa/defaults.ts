@@ -2,6 +2,7 @@ import type {
   AgentConfig,
   AgentId,
   GlobalSettings,
+  HarnessConfig,
   IterationDefaults,
   ProviderGeneration,
 } from "./types"
@@ -19,6 +20,73 @@ export const DEFAULT_PROVIDER_GENERATION: ProviderGeneration = {
   reasoningEffort: "high",
   contextLength: 16,
   maxRetries: 2,
+}
+
+export const DEFAULT_HARNESS: HarnessConfig = {
+  kind: "llm",
+  claudePath: "claude",
+  model: "",
+  allowedTools: ["Read", "Edit", "Write", "Bash"],
+  maxUsdPerRollout: 1,
+  maxUsdPerRun: 20,
+  timeoutMs: 300_000,
+  maxConcurrent: 1,
+}
+
+const HARNESS_KINDS = new Set(["llm", "claude-code"])
+
+function toStringArray(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return fallback
+  const items = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return items.length > 0 ? [...new Set(items)] : fallback
+}
+
+export function normalizeHarness(value: unknown): HarnessConfig {
+  const source =
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {}
+  const kind =
+    typeof source.kind === "string" && HARNESS_KINDS.has(source.kind)
+      ? (source.kind as HarnessConfig["kind"])
+      : DEFAULT_HARNESS.kind
+  return {
+    kind,
+    claudePath:
+      typeof source.claudePath === "string" && source.claudePath.trim()
+        ? source.claudePath.trim()
+        : DEFAULT_HARNESS.claudePath,
+    model:
+      typeof source.model === "string" ? source.model.trim() : DEFAULT_HARNESS.model,
+    allowedTools: toStringArray(
+      source.allowedTools,
+      DEFAULT_HARNESS.allowedTools
+    ),
+    maxUsdPerRollout: Math.max(
+      0,
+      toFiniteNumber(source.maxUsdPerRollout) ??
+        DEFAULT_HARNESS.maxUsdPerRollout
+    ),
+    maxUsdPerRun: Math.max(
+      0,
+      toFiniteNumber(source.maxUsdPerRun) ?? DEFAULT_HARNESS.maxUsdPerRun
+    ),
+    timeoutMs: clampInteger(
+      source.timeoutMs,
+      10_000,
+      3_600_000,
+      DEFAULT_HARNESS.timeoutMs
+    ),
+    maxConcurrent: clampInteger(
+      source.maxConcurrent,
+      1,
+      16,
+      DEFAULT_HARNESS.maxConcurrent
+    ),
+  }
 }
 
 // 上下文长度以 k tokens 存储（1k = 1024 tokens）
@@ -419,6 +487,7 @@ export function createDefaultSettings(): GlobalSettings {
       cacheCostPerMillion: 0,
       retentionDays: 30,
     },
+    harness: { ...DEFAULT_HARNESS, allowedTools: [...DEFAULT_HARNESS.allowedTools] },
     updatedAt: new Date().toISOString(),
   }
 }
