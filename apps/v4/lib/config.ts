@@ -5,8 +5,8 @@ export const siteConfig = {
   description: "基于反思性提示变异与帕累托选择的技能迭代控制台。",
   navItems: [
     {
-      href: "/gepa",
-      label: "概览",
+      href: "/gepa/monitor",
+      label: "监控",
     },
     {
       href: "/gepa/chat",
@@ -15,10 +15,6 @@ export const siteConfig = {
     {
       href: "/gepa/tasks",
       label: "任务",
-    },
-    {
-      href: "/gepa/monitor",
-      label: "监控",
     },
     {
       href: "/gepa/llm",

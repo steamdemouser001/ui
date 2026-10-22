@@ -91,6 +91,7 @@ export function MonitorDashboard() {
   const [refreshing, setRefreshing] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [autoRefresh, setAutoRefresh] = React.useState(true)
+  const [liveMode, setLiveMode] = React.useState<"sse" | "poll">("sse")
   const [lastUpdatedAt, setLastUpdatedAt] = React.useState<string | null>(null)
   const inFlightRef = React.useRef(false)
 
@@ -121,18 +122,63 @@ export function MonitorDashboard() {
     void load("initial")
   }, [load])
 
+  // 自动刷新优先使用 SSE 实时推送；连接失败时退回 5 秒轮询。
   React.useEffect(() => {
     if (!autoRefresh) return
+    if (typeof window === "undefined" || typeof EventSource === "undefined") {
+      setLiveMode("poll")
+      return
+    }
+
+    let disposed = false
+    const source = new EventSource("/api/gepa/monitor/events")
+
+    const handleSnapshot = (event: Event) => {
+      if (disposed) return
+      try {
+        const data = JSON.parse(
+          (event as MessageEvent<string>).data
+        ) as MonitorSnapshot
+        setSnapshot(data)
+        setLastUpdatedAt(new Date().toISOString())
+        setError(null)
+        setLoading(false)
+        setLiveMode("sse")
+      } catch {
+        // 忽略无法解析的快照
+      }
+    }
+    const handleError = () => {
+      if (disposed) return
+      setLiveMode("poll")
+      source.close()
+    }
+
+    source.addEventListener("snapshot", handleSnapshot)
+    source.addEventListener("error", handleError)
+    return () => {
+      disposed = true
+      source.removeEventListener("snapshot", handleSnapshot)
+      source.removeEventListener("error", handleError)
+      source.close()
+    }
+  }, [autoRefresh])
+
+  React.useEffect(() => {
+    if (!autoRefresh || liveMode !== "poll") return
     const timer = window.setInterval(() => {
       if (document.visibilityState === "hidden") return
       void load("silent")
     }, REFRESH_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [autoRefresh, load])
+  }, [autoRefresh, liveMode, load])
 
   const handleAutoRefreshChange = (checked: boolean) => {
     setAutoRefresh(checked)
-    if (checked) void load("silent")
+    if (checked) {
+      setLiveMode("sse")
+      void load("silent")
+    }
   }
 
   return (
@@ -148,7 +194,7 @@ export function MonitorDashboard() {
             htmlFor="monitor-auto-refresh"
             className="text-sm font-normal text-muted-foreground"
           >
-            自动刷新（5 秒）
+            自动刷新（实时）
           </Label>
         </div>
         <div className="flex items-center gap-3">

@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation"
 import {
   ActivityIcon,
   BotIcon,
-  LayoutDashboardIcon,
   ListTodoIcon,
   MessageSquareIcon,
   ServerIcon,
@@ -33,10 +32,9 @@ const NAV_GROUPS = [
   {
     label: "工作台",
     items: [
-      { href: "/gepa", label: "概览", icon: LayoutDashboardIcon },
+      { href: "/gepa/monitor", label: "监控", icon: ActivityIcon },
       { href: "/gepa/chat", label: "对话", icon: MessageSquareIcon },
       { href: "/gepa/tasks", label: "任务", icon: ListTodoIcon },
-      { href: "/gepa/monitor", label: "监控", icon: ActivityIcon },
     ],
   },
   {
@@ -51,9 +49,7 @@ const NAV_GROUPS = [
 ]
 
 function isActive(pathname: string, href: string) {
-  return href === "/gepa"
-    ? pathname === href
-    : pathname === href || pathname.startsWith(`${href}/`)
+  return pathname === href || pathname.startsWith(`${href}/`)
 }
 
 export function GepaSidebar() {

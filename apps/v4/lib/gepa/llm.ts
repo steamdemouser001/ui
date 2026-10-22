@@ -1,5 +1,11 @@
 import { logLlmCall } from "./metrics"
-import { callProvider, type LlmMessage, type LlmResult } from "./providers"
+import {
+  callProvider,
+  callProviderStream,
+  type LlmMessage,
+  type LlmResult,
+  type ProviderStreamHandlers,
+} from "./providers"
 import { readAgents, readSettings, resolveProvider } from "./storage"
 import type { AgentConfig, AgentId, LlmCallLog, LlmProvider } from "./types"
 
@@ -27,11 +33,18 @@ async function safeLog(log: Omit<LlmCallLog, "id" | "at">): Promise<void> {
   }
 }
 
-export async function runAgent(
+interface AgentRunContext {
+  agent: AgentConfig
+  provider: LlmProvider
+  model: string
+  prompt: string
+  messages: LlmMessage[]
+}
+
+async function resolveAgentRun(
   agentId: AgentId,
-  variables: Record<string, string>,
-  meta?: { taskId?: string; runId?: string }
-): Promise<LlmResult & { agent: AgentConfig; provider: LlmProvider }> {
+  variables: Record<string, string>
+): Promise<AgentRunContext> {
   const agents = await readAgents()
   const agent = agents.find((item) => item.id === agentId)
   if (!agent) {
@@ -52,7 +65,22 @@ export async function runAgent(
     )
   }
   const prompt = renderPrompt(agent.prompt, variables)
-  const messages: LlmMessage[] = [{ role: "system", content: prompt }]
+  return {
+    agent,
+    provider,
+    model,
+    prompt,
+    messages: [{ role: "system", content: prompt }],
+  }
+}
+
+export async function runAgent(
+  agentId: AgentId,
+  variables: Record<string, string>,
+  meta?: { taskId?: string; runId?: string }
+): Promise<LlmResult & { agent: AgentConfig; provider: LlmProvider }> {
+  const context = await resolveAgentRun(agentId, variables)
+  const { agent, provider, model, prompt, messages } = context
   const startedAt = Date.now()
 
   try {
@@ -90,6 +118,61 @@ export async function runAgent(
       success: false,
       error: message,
     })
+    throw error
+  }
+}
+
+/** 流式运行 Agent：逐段回调文本与思考内容，结束后记录完整用量。 */
+export async function runAgentStream(
+  agentId: AgentId,
+  variables: Record<string, string>,
+  handlers: ProviderStreamHandlers = {},
+  meta?: { taskId?: string; runId?: string },
+  signal?: AbortSignal
+): Promise<LlmResult & { agent: AgentConfig; provider: LlmProvider }> {
+  const context = await resolveAgentRun(agentId, variables)
+  const { agent, provider, model, prompt, messages } = context
+  const startedAt = Date.now()
+
+  try {
+    const result = await callProviderStream(
+      provider,
+      { model, messages },
+      handlers,
+      signal
+    )
+    await safeLog({
+      providerId: provider.id,
+      providerName: provider.name,
+      model,
+      agentId,
+      taskId: meta?.taskId,
+      runId: meta?.runId,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      cacheTokens: result.cacheTokens,
+      durationMs: result.durationMs,
+      success: true,
+    })
+    return { ...result, agent, provider }
+  } catch (error) {
+    if (!signal?.aborted) {
+      const message = error instanceof Error ? error.message : String(error)
+      await safeLog({
+        providerId: provider.id,
+        providerName: provider.name,
+        model,
+        agentId,
+        taskId: meta?.taskId,
+        runId: meta?.runId,
+        inputTokens: estimateTokens(prompt),
+        outputTokens: 0,
+        cacheTokens: 0,
+        durationMs: Date.now() - startedAt,
+        success: false,
+        error: message,
+      })
+    }
     throw error
   }
 }

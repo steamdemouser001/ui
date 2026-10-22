@@ -9,7 +9,7 @@ import { Separator } from "@/registry/new-york-v4/ui/separator"
 import { SidebarTrigger } from "@/registry/new-york-v4/ui/sidebar"
 
 const PAGE_TITLES: Record<string, string> = {
-  "/gepa": "概览",
+  "/gepa": "监控",
   "/gepa/chat": "全局对话",
   "/gepa/tasks": "任务",
   "/gepa/monitor": "监控",

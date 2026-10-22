@@ -1,6 +1,9 @@
+import {
+  ensureDefaultChatSession,
+  readChatSessionMessages,
+} from "@/lib/gepa/chat-sessions"
 import { chatWithController, clearGlobalChat } from "@/lib/gepa/controller"
 import { errorMessage, fail, ok } from "@/lib/gepa/http"
-import { readGlobalMessages } from "@/lib/gepa/storage"
 import { listTaskSummaries } from "@/lib/gepa/task-service"
 
 export const runtime = "nodejs"
@@ -10,13 +13,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+/** 兼容旧接口：读写默认会话。新界面请使用 /api/gepa/chat/sessions。 */
 export async function GET() {
   try {
+    const session = await ensureDefaultChatSession()
     const [messages, tasks] = await Promise.all([
-      readGlobalMessages(100),
+      readChatSessionMessages(session.id, 100),
       listTaskSummaries(),
     ])
-    return ok({ messages, tasks })
+    return ok({ messages, tasks, session })
   } catch (error) {
     return fail(errorMessage(error), 500)
   }
@@ -37,8 +42,9 @@ export async function POST(request: Request) {
   }
 
   try {
+    const session = await ensureDefaultChatSession()
     const reply = await chatWithController(body.message)
-    return ok(reply)
+    return ok({ ...reply, session })
   } catch (error) {
     return fail(errorMessage(error), 500)
   }

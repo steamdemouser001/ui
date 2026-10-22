@@ -456,6 +456,526 @@ async function callAnthropic(
   }
 }
 
+export interface ProviderStreamHandlers {
+  onText?: (delta: string) => void
+  onReasoning?: (delta: string) => void
+}
+
+interface StreamFetchState {
+  response: Response
+  touch: () => void
+  cleanup: () => void
+  timedOut: () => boolean
+}
+
+async function fetchStreamWithIdleTimeout(
+  url: string,
+  init: RequestInit,
+  externalSignal: AbortSignal | undefined,
+  idleMs = REQUEST_TIMEOUT_MS
+): Promise<StreamFetchState> {
+  const controller = new AbortController()
+  let timedOut = false
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  const onAbort = () => controller.abort()
+  const cleanup = () => {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+    externalSignal?.removeEventListener("abort", onAbort)
+  }
+  const touch = () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, idleMs)
+  }
+
+  if (externalSignal?.aborted) controller.abort()
+  else externalSignal?.addEventListener("abort", onAbort, { once: true })
+  touch()
+
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal })
+    return {
+      response,
+      touch,
+      cleanup,
+      timedOut: () => timedOut,
+    }
+  } catch (error) {
+    cleanup()
+    if (timedOut) {
+      throw new ProviderRequestError(
+        `LLM 请求超时（${Math.round(idleMs / 1000)}s 无响应）`,
+        { retryable: true }
+      )
+    }
+    if (externalSignal?.aborted) {
+      throw new Error("请求已取消")
+    }
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new ProviderRequestError(`LLM 请求失败：${reason}`, {
+      retryable: true,
+    })
+  }
+}
+
+function readStreamChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  state: StreamFetchState,
+  idleMs = REQUEST_TIMEOUT_MS
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  return reader.read().catch((error: unknown) => {
+    if (state.timedOut()) {
+      throw new ProviderRequestError(
+        `LLM 流式响应超时（${Math.round(idleMs / 1000)}s 无响应）`,
+        { retryable: true }
+      )
+    }
+    throw error
+  })
+}
+
+interface OpenAiStreamChunk {
+  choices?: {
+    delta?: {
+      content?: unknown
+      reasoning_content?: unknown
+      reasoning?: unknown
+    }
+  }[]
+  usage?: OpenAiResponse["usage"]
+  error?: { message?: unknown } | string
+}
+
+interface AnthropicStreamEvent {
+  type?: string
+  message?: { usage?: AnthropicResponse["usage"] }
+  usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+  }
+  delta?: { type?: string; text?: string; thinking?: string }
+  error?: { message?: unknown }
+}
+
+function readOpenAiUsage(usage: OpenAiResponse["usage"]): {
+  inputTokens: number | null
+  outputTokens: number | null
+  cacheTokens: number
+} | null {
+  if (!usage) return null
+  return {
+    inputTokens: usage.prompt_tokens ?? usage.input_tokens ?? null,
+    outputTokens: usage.completion_tokens ?? usage.output_tokens ?? null,
+    cacheTokens: firstFiniteTokenCount(
+      usage.prompt_tokens_details?.cached_tokens,
+      usage.input_tokens_details?.cached_tokens,
+      usage.cached_tokens,
+      usage.prompt_cache_hit_tokens
+    ),
+  }
+}
+
+function errorTextFromPayload(payload: unknown): string {
+  if (typeof payload === "string") return payload
+  if (payload && typeof payload === "object") {
+    const message = (payload as { message?: unknown }).message
+    if (typeof message === "string" && message) return message
+  }
+  return "未知错误"
+}
+
+async function callOpenAiCompatibleStream(
+  provider: LlmProvider,
+  options: CallProviderOptions,
+  generation: ProviderGeneration,
+  maxOutput: number,
+  handlers: ProviderStreamHandlers,
+  signal?: AbortSignal
+): Promise<Omit<LlmResult, "durationMs">> {
+  const url = `${trimBaseUrl(provider.baseUrl)}/chat/completions`
+  const state = await fetchStreamWithIdleTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${provider.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: options.model,
+        messages: options.messages,
+        reasoning_effort: generation.reasoningEffort,
+        max_tokens: maxOutput,
+        stream: true,
+        stream_options: { include_usage: true },
+      }),
+    },
+    signal
+  )
+
+  if (!state.response.ok) {
+    state.cleanup()
+    throw await createHttpError(state.response)
+  }
+  if (!state.response.body) {
+    state.cleanup()
+    throw new Error("LLM 流式响应为空")
+  }
+
+  const reader = state.response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let text = ""
+  let reasoning = ""
+  let inputTokens: number | null = null
+  let outputTokens: number | null = null
+  let cacheTokens = 0
+  let finished = false
+
+  const handleLine = (line: string): void => {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith(":")) return
+    if (!trimmed.startsWith("data:")) return
+    const data = trimmed.slice(5).trim()
+    if (!data) return
+    if (data === "[DONE]") {
+      finished = true
+      return
+    }
+    let payload: OpenAiStreamChunk
+    try {
+      payload = JSON.parse(data) as OpenAiStreamChunk
+    } catch {
+      return
+    }
+    if (payload.error) {
+      throw new ProviderRequestError(
+        `LLM 返回错误：${errorTextFromPayload(payload.error)}`,
+        { retryable: false }
+      )
+    }
+    const delta = payload.choices?.[0]?.delta
+    if (delta) {
+      const content = normalizeContent(delta.content)
+      if (content) {
+        text += content
+        handlers.onText?.(content)
+      }
+      const reasoningDelta = normalizeContent(
+        delta.reasoning_content ?? delta.reasoning
+      )
+      if (reasoningDelta) {
+        reasoning += reasoningDelta
+        handlers.onReasoning?.(reasoningDelta)
+      }
+    }
+    const usage = readOpenAiUsage(payload.usage)
+    if (usage) {
+      if (usage.inputTokens !== null) inputTokens = usage.inputTokens
+      if (usage.outputTokens !== null) outputTokens = usage.outputTokens
+      cacheTokens = usage.cacheTokens
+    }
+  }
+
+  try {
+    while (!finished) {
+      const chunk = await readStreamChunk(reader, state)
+      if (chunk.done) break
+      state.touch()
+      buffer += decoder.decode(chunk.value, { stream: true })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() ?? ""
+      for (const line of lines) {
+        handleLine(line)
+        if (finished) break
+      }
+    }
+    if (!finished && buffer.trim()) {
+      handleLine(buffer)
+    }
+  } finally {
+    state.cleanup()
+    await reader.cancel().catch(() => undefined)
+  }
+
+  return {
+    text,
+    inputTokens:
+      inputTokens ??
+      estimateTokens(
+        options.messages.map((message) => message.content).join("\n")
+      ),
+    outputTokens: outputTokens ?? estimateTokens(text),
+    cacheTokens,
+  }
+}
+
+async function callAnthropicStream(
+  provider: LlmProvider,
+  options: CallProviderOptions,
+  generation: ProviderGeneration,
+  estimatedInput: number,
+  contextTokens: number,
+  handlers: ProviderStreamHandlers,
+  signal?: AbortSignal
+): Promise<Omit<LlmResult, "durationMs">> {
+  const base = trimBaseUrl(provider.baseUrl)
+  const url = /\/v1$/.test(base) ? `${base}/messages` : `${base}/v1/messages`
+  const system = options.messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content)
+    .join("\n\n")
+  const messages = options.messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({ role: message.role, content: message.content }))
+  if (messages.length === 0) {
+    messages.push({ role: "user", content: "请按照系统提示完成任务。" })
+  }
+
+  const available = contextTokens - estimatedInput
+  if (available < 2048) {
+    throw new Error(
+      `供应商「${provider.name}」的上下文长度不足以支持思考模式（当前 ${generation.contextLength}k），请增大上下文长度或缩短输入`
+    )
+  }
+  const budget = Math.min(
+    THINKING_BUDGETS[generation.reasoningEffort],
+    available - 1024
+  )
+  const maxTokens = Math.min(
+    available,
+    Math.max(budget + 1024, Math.min(8192, available))
+  )
+
+  const state = await fetchStreamWithIdleTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": provider.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: options.model,
+        max_tokens: maxTokens,
+        thinking: { type: "enabled", budget_tokens: budget },
+        system: system || undefined,
+        messages,
+        stream: true,
+      }),
+    },
+    signal
+  )
+
+  if (!state.response.ok) {
+    state.cleanup()
+    throw await createHttpError(state.response)
+  }
+  if (!state.response.body) {
+    state.cleanup()
+    throw new Error("LLM 流式响应为空")
+  }
+
+  const reader = state.response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let text = ""
+  let reasoning = ""
+  let reportedInputTokens: number | null = null
+  let outputTokens: number | null = null
+  let cacheReadTokens = 0
+  let cacheCreationTokens = 0
+  let eventName = ""
+  let finished = false
+
+  const handleEvent = (event: string, data: string): void => {
+    if (!data || data === "[DONE]") return
+    let payload: AnthropicStreamEvent
+    try {
+      payload = JSON.parse(data) as AnthropicStreamEvent
+    } catch {
+      return
+    }
+    const type = payload.type ?? event
+    if (type === "error") {
+      throw new ProviderRequestError(
+        `LLM 返回错误：${errorTextFromPayload(payload.error)}`,
+        { retryable: false }
+      )
+    }
+    if (type === "message_start") {
+      const usage = payload.message?.usage
+      if (usage) {
+        if (typeof usage.input_tokens === "number") {
+          reportedInputTokens = usage.input_tokens
+        }
+        if (typeof usage.cache_read_input_tokens === "number") {
+          cacheReadTokens = usage.cache_read_input_tokens
+        }
+        if (typeof usage.cache_creation_input_tokens === "number") {
+          cacheCreationTokens = usage.cache_creation_input_tokens
+        }
+        if (typeof usage.output_tokens === "number") {
+          outputTokens = usage.output_tokens
+        }
+      }
+      return
+    }
+    if (type === "content_block_delta") {
+      const delta = payload.delta
+      if (delta?.type === "text_delta" && typeof delta.text === "string") {
+        text += delta.text
+        handlers.onText?.(delta.text)
+      } else if (
+        delta?.type === "thinking_delta" &&
+        typeof delta.thinking === "string"
+      ) {
+        reasoning += delta.thinking
+        handlers.onReasoning?.(delta.thinking)
+      }
+      return
+    }
+    if (type === "message_delta") {
+      if (typeof payload.usage?.output_tokens === "number") {
+        outputTokens = payload.usage.output_tokens
+      }
+      return
+    }
+    if (type === "message_stop") {
+      finished = true
+    }
+  }
+
+  try {
+    while (!finished) {
+      const chunk = await readStreamChunk(reader, state)
+      if (chunk.done) break
+      state.touch()
+      buffer += decoder.decode(chunk.value, { stream: true })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() ?? ""
+      for (const line of lines) {
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim()
+        } else if (line.startsWith("data:")) {
+          handleEvent(eventName, line.slice(5).trim())
+          if (finished) break
+        }
+      }
+    }
+  } finally {
+    state.cleanup()
+    await reader.cancel().catch(() => undefined)
+  }
+
+  return {
+    text,
+    inputTokens:
+      reportedInputTokens !== null
+        ? reportedInputTokens + cacheReadTokens + cacheCreationTokens
+        : estimateTokens(
+            options.messages.map((message) => message.content).join("\n")
+          ),
+    outputTokens: outputTokens ?? estimateTokens(text),
+    cacheTokens: cacheReadTokens,
+  }
+}
+
+/**
+ * 流式调用供应商：逐段回调文本与思考内容，结束后返回完整结果与用量。
+ * 一旦已经向调用方输出过内容，失败时不再重试，避免前端收到重复文本。
+ */
+export async function callProviderStream(
+  provider: LlmProvider,
+  options: CallProviderOptions,
+  handlers: ProviderStreamHandlers = {},
+  signal?: AbortSignal
+): Promise<LlmResult> {
+  if (!provider.baseUrl.trim()) {
+    throw new Error(`LLM 供应商「${provider.name}」未配置 Base URL`)
+  }
+  if (!provider.apiKey.trim()) {
+    throw new Error(`LLM 供应商「${provider.name}」未配置 API Key`)
+  }
+  if (!options.model.trim()) {
+    throw new Error(`LLM 供应商「${provider.name}」未指定模型`)
+  }
+
+  const generation = normalizeProviderGeneration(provider.generation)
+  const contextTokens = generation.contextLength * 1024
+  const estimatedInput = estimateTokens(
+    options.messages.map((message) => message.content).join("\n")
+  )
+  if (estimatedInput >= contextTokens) {
+    throw new Error(
+      `输入约 ${estimatedInput} tokens，超过供应商「${provider.name}」的上下文长度 ${generation.contextLength}k（${contextTokens} tokens）`
+    )
+  }
+  const available = contextTokens - estimatedInput
+  if (available < 256) {
+    throw new Error(
+      `供应商「${provider.name}」的上下文长度不足以生成回复（当前 ${generation.contextLength}k），请增大上下文长度或缩短输入`
+    )
+  }
+  const maxOutput = Math.min(8192, available)
+  const maxRetries = Math.max(0, Math.trunc(generation.maxRetries))
+  const startedAt = Date.now()
+  let emitted = false
+
+  const guardedHandlers: ProviderStreamHandlers = {
+    onText: (delta) => {
+      emitted = true
+      handlers.onText?.(delta)
+    },
+    onReasoning: (delta) => {
+      emitted = true
+      handlers.onReasoning?.(delta)
+    },
+  }
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const result =
+        provider.kind === "anthropic"
+          ? await callAnthropicStream(
+              provider,
+              options,
+              generation,
+              estimatedInput,
+              contextTokens,
+              guardedHandlers,
+              signal
+            )
+          : await callOpenAiCompatibleStream(
+              provider,
+              options,
+              generation,
+              maxOutput,
+              guardedHandlers,
+              signal
+            )
+      return { ...result, durationMs: Date.now() - startedAt }
+    } catch (error) {
+      const aborted = signal?.aborted === true
+      const retryable =
+        error instanceof ProviderRequestError ? error.retryable : !emitted
+      if (aborted || attempt >= maxRetries || !retryable || emitted) {
+        throw error
+      }
+      await sleep(RETRY_BASE_DELAY_MS * 2 ** attempt)
+    }
+  }
+}
+
 export async function callProvider(
   provider: LlmProvider,
   options: CallProviderOptions

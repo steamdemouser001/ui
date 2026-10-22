@@ -163,6 +163,17 @@ export function TaskList() {
     void load()
   }, [load])
 
+  // 任务状态实时刷新：静默拉取，避免打断当前操作。
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return
+      void apiGet<TasksResponse>("/api/gepa/tasks")
+        .then((data) => setTasks(data.tasks))
+        .catch(() => undefined)
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [])
+
   function handleCreated(_task: TaskRecord) {
     void load()
   }

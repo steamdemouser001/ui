@@ -218,6 +218,16 @@ export interface OrchestratorMessage {
   actions?: OrchestratorAction[]
 }
 
+export interface ChatSessionMeta {
+  id: string
+  title: string
+  titleAuto: boolean
+  preview: string
+  messageCount: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface OrchestratorAction {
   type:
     | "start"

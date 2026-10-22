@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto"
 
 import { describeConstraints } from "./constraints"
-import { runAgentJson } from "./llm"
 import {
   getRunStatus,
   pauseRun,
@@ -20,6 +19,7 @@ import {
   writeRun,
   writeTask,
 } from "./storage"
+import { extractJsonStringField, runAgentJsonStream } from "./stream-json"
 import { sanitizeIteration } from "./task-service"
 import type {
   OrchestratorAction,
@@ -345,13 +345,22 @@ export async function executeTaskAction(
   }
 }
 
+export interface OrchestratorStreamHandlers {
+  onReasoning?: (delta: string) => void
+  onReplyDelta?: (delta: string) => void
+  onStatus?: (status: string) => void
+  onAction?: (action: OrchestratorActionResult) => void
+}
+
 /**
- * 与任务总控对话：注入任务/运行/约束/历史，解析 LLM 返回的动作并顺序执行。
- * 单个动作失败不会影响其他动作。
+ * 与任务总控对话：注入任务/运行/约束/历史，流式返回回复文本，
+ * 完成后解析并顺序执行动作。单个动作失败不会影响其他动作。
  */
-export async function chatWithOrchestrator(
+export async function chatWithOrchestratorStream(
   taskId: string,
-  message: string
+  message: string,
+  handlers: OrchestratorStreamHandlers = {},
+  signal?: AbortSignal
 ): Promise<OrchestratorReply> {
   const trimmed = typeof message === "string" ? message.trim() : ""
   if (!trimmed) {
@@ -388,33 +397,48 @@ export async function chatWithOrchestrator(
     message: trimmed,
   }
 
-  let payload: OrchestratorPayload
+  let streamed: { data: OrchestratorPayload | null; raw: string }
   try {
-    const response = await runAgentJson<OrchestratorPayload>(
+    streamed = await runAgentJsonStream<OrchestratorPayload>(
       "orchestrator",
       variables,
-      { taskId, runId: run?.id }
+      {
+        onReplyDelta: handlers.onReplyDelta,
+        onReasoning: handlers.onReasoning,
+      },
+      { taskId, runId: run?.id },
+      signal
     )
-    payload = isRecord(response.data) ? response.data : {}
   } catch (error) {
-    await appendOrchestratorMessage(taskId, {
-      id: randomUUID(),
-      role: "assistant",
-      content: `总控调用失败：${errorText(error)}`,
-      at: nowIso(),
-    }).catch(() => undefined)
+    if (!signal?.aborted) {
+      await appendOrchestratorMessage(taskId, {
+        id: randomUUID(),
+        role: "assistant",
+        content: `总控调用失败：${errorText(error)}`,
+        at: nowIso(),
+      }).catch(() => undefined)
+    }
     throw error
   }
 
+  const payload: OrchestratorPayload = isRecord(streamed.data)
+    ? streamed.data
+    : {}
   const requested = Array.isArray(payload.actions)
     ? payload.actions.filter(isRecord).slice(0, MAX_ACTIONS)
     : []
 
   const context: ActionContext = { task, run }
   const actions: OrchestratorActionResult[] = []
+  if (requested.length > 0) {
+    handlers.onStatus?.("正在执行操作…")
+  }
   for (const raw of requested) {
     const action = raw as unknown as OrchestratorAction
-    actions.push(await executeTaskAction(taskId, action, context))
+    handlers.onStatus?.(`正在执行操作：${action.type || "未知"}`)
+    const outcome = await executeTaskAction(taskId, action, context)
+    actions.push(outcome)
+    handlers.onAction?.(outcome)
 
     // 每个动作后刷新上下文，保证后续动作基于最新状态执行。
     const freshTask = await readTask(taskId).catch(() => null)
@@ -423,12 +447,13 @@ export async function chatWithOrchestrator(
     if (freshRun) context.run = freshRun
   }
 
+  const parsedReply =
+    typeof payload.reply === "string" ? payload.reply.trim() : ""
   const reply =
-    typeof payload.reply === "string" && payload.reply.trim()
-      ? payload.reply.trim()
-      : actions.length > 0
-        ? "已按你的要求执行操作。"
-        : "我已收到你的消息。"
+    parsedReply ||
+    extractJsonStringField(streamed.raw, "reply").trim() ||
+    (streamed.data === null ? streamed.raw.trim() : "") ||
+    (actions.length > 0 ? "已按你的要求执行操作。" : "我已收到你的消息。")
 
   const assistantMessage: OrchestratorMessage = {
     id: randomUUID(),
@@ -443,4 +468,12 @@ export async function chatWithOrchestrator(
 
   const finalRun = await getRunStatus(taskId).catch(() => null)
   return { reply, actions, run: finalRun ?? context.run }
+}
+
+/** 兼容旧调用：等待完整回复。 */
+export async function chatWithOrchestrator(
+  taskId: string,
+  message: string
+): Promise<OrchestratorReply> {
+  return chatWithOrchestratorStream(taskId, message)
 }

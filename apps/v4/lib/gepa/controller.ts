@@ -1,20 +1,19 @@
 import { randomUUID } from "node:crypto"
 
+import {
+  appendChatSessionMessage,
+  clearChatSession,
+  ensureDefaultChatSession,
+  readChatSession,
+  readChatSessionMessages,
+} from "./chat-sessions"
 import { describeConstraints } from "./constraints"
-import { runAgentJson } from "./llm"
 import {
   executeTaskAction,
   type OrchestratorActionResult,
 } from "./orchestrator"
-import {
-  appendGlobalMessage,
-  clearGlobalMessages,
-  listRuns,
-  readGlobalMessages,
-  readRun,
-  readSettings,
-  readTask,
-} from "./storage"
+import { listRuns, readRun, readSettings, readTask } from "./storage"
+import { extractJsonStringField, runAgentJsonStream } from "./stream-json"
 import {
   createTask,
   deleteTask,
@@ -190,12 +189,22 @@ async function executeControllerAction(
   }
 }
 
+export interface ChatStreamHandlers {
+  onReasoning?: (delta: string) => void
+  onReplyDelta?: (delta: string) => void
+  onStatus?: (status: string) => void
+  onAction?: (action: OrchestratorActionResult) => void
+}
+
 /**
- * 与全局调度器对话：注入全部任务摘要、约束与全局历史，解析 LLM 返回的
- * 跨任务动作并顺序执行。单个动作失败不会影响其他动作。
+ * 与全局调度器对话：注入全部任务摘要、约束与指定会话的历史，流式返回
+ * 回复文本，完成后解析并顺序执行跨任务动作。单个动作失败不影响其他动作。
  */
-export async function chatWithController(
-  message: string
+export async function chatWithControllerStream(
+  sessionId: string,
+  message: string,
+  handlers: ChatStreamHandlers = {},
+  signal?: AbortSignal
 ): Promise<ControllerReply> {
   const trimmed = typeof message === "string" ? message.trim() : ""
   if (!trimmed) {
@@ -205,10 +214,15 @@ export async function chatWithController(
     throw new Error(`消息过长（上限 ${MAX_MESSAGE_LENGTH} 字符）`)
   }
 
+  const session = await readChatSession(sessionId)
+  if (!session) {
+    throw new Error("会话不存在或已被删除")
+  }
+
   const [settings, tasks, history] = await Promise.all([
     readSettings(),
     listTaskSummaries(),
-    readGlobalMessages(HISTORY_LIMIT),
+    readChatSessionMessages(sessionId, HISTORY_LIMIT),
   ])
 
   const userMessage: OrchestratorMessage = {
@@ -217,7 +231,7 @@ export async function chatWithController(
     content: trimmed,
     at: nowIso(),
   }
-  await appendGlobalMessage(userMessage)
+  await appendChatSessionMessage(sessionId, userMessage)
 
   const variables: Record<string, string> = {
     tasks: formatTasks(tasks),
@@ -226,38 +240,56 @@ export async function chatWithController(
     message: trimmed,
   }
 
-  let payload: ControllerPayload
+  let streamed: { data: ControllerPayload | null; raw: string }
   try {
-    const response = await runAgentJson<ControllerPayload>(
+    streamed = await runAgentJsonStream<ControllerPayload>(
       "controller",
-      variables
+      variables,
+      {
+        onReplyDelta: handlers.onReplyDelta,
+        onReasoning: handlers.onReasoning,
+      },
+      undefined,
+      signal
     )
-    payload = isRecord(response.data) ? response.data : {}
   } catch (error) {
-    await appendGlobalMessage({
-      id: randomUUID(),
-      role: "assistant",
-      content: `全局调度调用失败：${errorText(error)}`,
-      at: nowIso(),
-    }).catch(() => undefined)
+    if (!signal?.aborted) {
+      await appendChatSessionMessage(sessionId, {
+        id: randomUUID(),
+        role: "assistant",
+        content: `全局调度调用失败：${errorText(error)}`,
+        at: nowIso(),
+      }).catch(() => undefined)
+    }
     throw error
   }
 
+  const payload: ControllerPayload = isRecord(streamed.data)
+    ? streamed.data
+    : {}
   const requested = Array.isArray(payload.actions)
     ? payload.actions.filter(isRecord).slice(0, MAX_ACTIONS)
     : []
 
   const actions: OrchestratorActionResult[] = []
+  if (requested.length > 0) {
+    handlers.onStatus?.("正在执行操作…")
+  }
   for (const raw of requested) {
-    actions.push(
-      await executeControllerAction(raw as unknown as OrchestratorAction)
-    )
+    const action = raw as unknown as OrchestratorAction
+    handlers.onStatus?.(`正在执行操作：${action.type || "未知"}`)
+    const outcome = await executeControllerAction(action)
+    actions.push(outcome)
+    handlers.onAction?.(outcome)
   }
 
+  const parsedReply =
+    typeof payload.reply === "string" ? payload.reply.trim() : ""
   const reply =
-    typeof payload.reply === "string" && payload.reply.trim()
-      ? payload.reply.trim()
-      : "（无回复）"
+    parsedReply ||
+    extractJsonStringField(streamed.raw, "reply").trim() ||
+    (streamed.data === null ? streamed.raw.trim() : "") ||
+    "（无回复）"
 
   const assistantMessage: OrchestratorMessage = {
     id: randomUUID(),
@@ -268,7 +300,7 @@ export async function chatWithController(
   if (actions.length > 0) {
     assistantMessage.actions = actions
   }
-  await appendGlobalMessage(assistantMessage)
+  await appendChatSessionMessage(sessionId, assistantMessage)
 
   return {
     reply,
@@ -277,6 +309,15 @@ export async function chatWithController(
   }
 }
 
+/** 兼容旧调用：写入默认会话并等待完整回复。 */
+export async function chatWithController(
+  message: string
+): Promise<ControllerReply> {
+  const session = await ensureDefaultChatSession()
+  return chatWithControllerStream(session.id, message)
+}
+
 export async function clearGlobalChat(): Promise<void> {
-  await clearGlobalMessages()
+  const session = await ensureDefaultChatSession()
+  await clearChatSession(session.id)
 }

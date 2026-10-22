@@ -79,6 +79,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState<RunAction | "refresh" | null>(null)
+  const [liveMode, setLiveMode] = React.useState<"sse" | "poll">("sse")
   const requestSeq = React.useRef(0)
 
   const load = React.useCallback(
@@ -112,17 +113,60 @@ export function TaskDetail({ taskId }: { taskId: string }) {
     void load()
   }, [load])
 
+  // 实时快照：服务端在运行中每 1 秒、空闲时每 5 秒推送一次。
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof EventSource === "undefined") {
+      setLiveMode("poll")
+      return
+    }
+
+    let disposed = false
+    const source = new EventSource(`/api/gepa/tasks/${taskId}/events`)
+
+    const handleSnapshot = (event: Event) => {
+      if (disposed) return
+      try {
+        const data = JSON.parse(
+          (event as MessageEvent<string>).data
+        ) as TaskDetailData
+        // 让仍在途中的手动请求失效，避免旧快照覆盖实时数据。
+        requestSeq.current += 1
+        setDetail(data)
+        setError(null)
+        setLoading(false)
+        setLiveMode("sse")
+      } catch {
+        // 忽略无法解析的快照
+      }
+    }
+    const handleError = () => {
+      if (disposed) return
+      // EventSource 连接失败时退回轮询，避免页面停止更新。
+      setLiveMode("poll")
+      source.close()
+    }
+
+    source.addEventListener("snapshot", handleSnapshot)
+    source.addEventListener("error", handleError)
+    return () => {
+      disposed = true
+      source.removeEventListener("snapshot", handleSnapshot)
+      source.removeEventListener("error", handleError)
+      source.close()
+    }
+  }, [taskId])
+
   const runStatus = detail?.run?.status ?? null
   const taskStatus = detail?.task.status ?? null
   const shouldPoll = runStatus === "running" || taskStatus === "running"
 
   React.useEffect(() => {
-    if (!shouldPoll) return
+    if (liveMode !== "poll" || !shouldPoll) return
     const timer = window.setInterval(() => {
       void load(true)
     }, 3000)
     return () => window.clearInterval(timer)
-  }, [shouldPoll, load])
+  }, [liveMode, shouldPoll, load])
 
   async function handleAction(action: RunAction) {
     setBusy(action)
@@ -230,6 +274,12 @@ export function TaskDetail({ taskId }: { taskId: string }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {liveMode === "sse" && (
+              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+                实时
+              </span>
+            )}
             <Button
               variant="outline"
               size="sm"
