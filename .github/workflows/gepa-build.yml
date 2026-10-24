@@ -59,6 +59,25 @@ jobs:
           cp -r .next/static "$app_dir/.next/static"
           du -sh .next/standalone
 
+      # The standalone tree keeps pnpm's symlink layout: apps/v4/node_modules/next
+      # resolves its deps through .pnpm neighbor dirs. tar --dereference flattens
+      # those links, which breaks that resolution after extraction on Windows
+      # ("Cannot find module '@swc/helpers/...'"). pnpm's hidden hoisted store
+      # (node_modules/.pnpm/node_modules) is resolvable from the bundle root by
+      # design, so copying its entries up to node_modules/ makes the flattened
+      # tree self-contained. Validated locally: server boots and serves after
+      # exactly this transform.
+      - name: Materialize hoisted deps for symlink-free bundle
+        working-directory: apps/v4/.next/standalone
+        run: |
+          set -euo pipefail
+          if [ -d node_modules/.pnpm/node_modules ]; then
+            cp -r node_modules/.pnpm/node_modules/* node_modules/
+            ls node_modules | wc -l
+          else
+            echo "no .pnpm hoisted store found" >&2
+          fi
+
       - name: Write run instructions into bundle
         working-directory: apps/v4/.next/standalone
         run: |
