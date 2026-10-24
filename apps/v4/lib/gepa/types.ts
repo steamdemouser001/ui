@@ -29,6 +29,7 @@ export type AgentId =
   | "evaluator"
   | "reflector"
   | "summarizer"
+  | "analyst"
 
 export interface AgentConfig {
   id: AgentId

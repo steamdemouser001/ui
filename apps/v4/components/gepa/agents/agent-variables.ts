@@ -8,4 +8,5 @@ export const AGENT_VARIABLES: Record<AgentId, string[]> = {
   evaluator: ["input", "expected", "output", "skill"],
   reflector: ["moduleName", "currentPrompt", "traces", "score", "feedback"],
   summarizer: ["task", "run", "candidates"],
+  analyst: ["digest", "configs"],
 }

@@ -203,7 +203,10 @@ export async function readJsonl<T>(
   return items.slice(-limit)
 }
 
-async function writeJsonl(relative: string, values: unknown[]): Promise<void> {
+export async function writeJsonl(
+  relative: string,
+  values: unknown[]
+): Promise<void> {
   const file = dataPath(relative)
   await ensureDir(path.dirname(file))
   const temp = `${file}.${process.pid}.${randomUUID()}.tmp`

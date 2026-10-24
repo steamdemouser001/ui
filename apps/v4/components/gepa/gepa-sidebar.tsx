@@ -7,6 +7,7 @@ import {
   BotIcon,
   ListTodoIcon,
   MessageSquareIcon,
+  ScanSearchIcon,
   ServerIcon,
   Settings2Icon,
   ShieldCheckIcon,
@@ -35,6 +36,7 @@ const NAV_GROUPS = [
       { href: "/gepa/monitor", label: "监控", icon: ActivityIcon },
       { href: "/gepa/chat", label: "对话", icon: MessageSquareIcon },
       { href: "/gepa/tasks", label: "任务", icon: ListTodoIcon },
+      { href: "/gepa/analyze", label: "会话分析", icon: ScanSearchIcon },
     ],
   },
   {

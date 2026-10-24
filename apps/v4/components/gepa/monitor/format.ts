@@ -12,6 +12,7 @@ const AGENT_LABELS: Record<string, string> = {
   evaluator: "评估器",
   reflector: "反思器",
   summarizer: "摘要器",
+  analyst: "会话分析师",
   "llm-test": "连接测试",
 }
 

@@ -9,6 +9,7 @@ import {
   RotateCcwIcon,
   SaveIcon,
   SparklesIcon,
+  StethoscopeIcon,
   WaypointsIcon,
   type LucideIcon,
 } from "lucide-react"
@@ -47,6 +48,7 @@ const AGENT_ICONS: Record<AgentId, LucideIcon> = {
   evaluator: CheckCircle2Icon,
   reflector: SparklesIcon,
   summarizer: FileTextIcon,
+  analyst: StethoscopeIcon,
 }
 
 export function agentToForm(agent: AgentConfig): AgentFormState {

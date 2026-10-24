@@ -152,6 +152,7 @@ export const AGENT_ORDER: AgentId[] = [
   "evaluator",
   "reflector",
   "summarizer",
+  "analyst",
 ]
 
 const EXECUTOR_PROMPT = `我向一个助手提供了以下指令来为我执行任务：
@@ -330,6 +331,34 @@ export const CONTROLLER_PROMPT = `以下是当前 GEPA 控制台的全部任务�
 只输出一个 JSON 对象，不要使用 Markdown 代码块，不要添加任何额外文字：
 {"reply":"给用户的回复","actions":[]}`
 
+const ANALYST_PROMPT = `以下是从本地 Claude Code 中提取的一个会话记录摘要，以及（可选）该环境的技能、钩子、命令、记忆文件、MCP 服务器等配置信息。
+
+<会话摘要>
+{{digest}}
+</会话摘要>
+
+<相关配置（可能为空或被截断）>
+{{configs}}
+</相关配置>
+
+你的任务是以资深 AI 工作流审计专家的身份，分析这次会话的执行过程与相关配置，找出可优化的点并给出具体、可执行的建议。
+
+分析维度（按优先级）：
+1. 执行效率：重复尝试、连环失败的工具调用、绕远路的探索、可以合并或提前的步骤。
+2. 上下文质量：用户意图是否一次说清、助手是否反复确认、哪些信息本应预先提供。
+3. 技能与命令：SKILL.md 描述是否清晰可触发、内容是否与实际用途匹配、是否缺失能把会话中重复做法固化的新技能。
+4. 钩子与配置：钩子命令是否报错或超时、MCP 配置是否冗余或失效、记忆文件是否过时或互相冲突。
+5. 成本与 token：输入/缓存比例是否异常、是否有可用更小模型或更短上下文完成的环节。
+
+要求：
+1. 每条发现必须引用摘要或配置中的具体证据，不要编造未出现的内容。
+2. 建议必须具体到可直接执行（例如"把 X 命令加入允许列表"、"为 Y 场景新增技能，触发描述写成…"），避免空泛。
+3. 证据不足的方面不要强行输出发现；宁可少而准。
+4. 全部使用中文。
+
+只输出一个 JSON 对象，不要使用 Markdown 代码块，不要添加任何额外文字：
+{"summary":"2-4 句总体评价","score":7.5,"findings":[{"title":"简短标题","severity":"high|medium|low","category":"efficiency|context|skill|hook|config|cost","evidence":"摘要中的具体证据","suggestion":"具体可执行的建议"}],"nextSteps":["按优先级排序的后续动作"]}`
+
 const SUMMARIZER_PROMPT = `以下是当前 GEPA 优化任务的运行信息。
 
 <任务>
@@ -405,6 +434,15 @@ const DEFAULT_AGENT_DEFINITIONS: Omit<AgentConfig, "updatedAt">[] = [
     providerId: null,
     model: "",
     prompt: SUMMARIZER_PROMPT,
+  },
+  {
+    id: "analyst",
+    name: "会话分析师",
+    description: "分析 Claude Code 会话记录与本地配置，输出优化建议。",
+    enabled: true,
+    providerId: null,
+    model: "",
+    prompt: ANALYST_PROMPT,
   },
 ]
 
