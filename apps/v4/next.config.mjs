@@ -260,6 +260,14 @@ const nextConfig = {
   },
 }
 
+// `.github/workflows/gepa-build.yml` sets BUILD_STANDALONE=1 to additionally
+// emit `.next/standalone` — a self-contained server bundle runnable with plain
+// `node server.js`, no install step. Local dev/builds leave it unset, so
+// nothing changes outside CI.
+if (process.env.BUILD_STANDALONE === "1") {
+  nextConfig.output = "standalone"
+}
+
 const withMDX = createMDX({})
 
 export default withMDX(nextConfig)

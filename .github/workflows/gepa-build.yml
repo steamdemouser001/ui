@@ -1,0 +1,116 @@
+name: GEPA Build
+
+on:
+  push:
+    branches: ["main", "feat/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: gepa-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build v4 and package standalone bundle
+    timeout-minutes: 120
+    env:
+      NEXT_PUBLIC_APP_URL: http://localhost:4000
+      NEXT_PUBLIC_V0_URL: https://v0.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build v4 (workspace packages + registry + next build)
+        run: pnpm --filter=v4 build
+        env:
+          BUILD_STANDALONE: "1"
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Assemble standalone bundle
+        working-directory: apps/v4
+        run: |
+          set -euo pipefail
+          server="$(find .next/standalone -name server.js -type f | head -n 1)"
+          if [ -z "$server" ]; then
+            echo "server.js not found under .next/standalone" >&2
+            exit 1
+          fi
+          app_dir="$(dirname "$server")"
+          echo "APP_DIR=$app_dir" >> "$GITHUB_ENV"
+          rm -rf "$app_dir/public" "$app_dir/.next/static"
+          cp -r public "$app_dir/public"
+          cp -r .next/static "$app_dir/.next/static"
+          du -sh .next/standalone
+
+      - name: Write run instructions into bundle
+        working-directory: apps/v4/.next/standalone
+        run: |
+          cat > RUN.md <<'EOF'
+          # Standalone build of apps/v4 (shadcn/ui docs + GEPA pages)
+
+          Requires only Node.js >= 20 on the machine that runs it — no install step.
+
+          From this folder:
+
+            Linux/macOS:  PORT=4000 node apps/v4/server.js
+            PowerShell:   $env:PORT=4000; node apps/v4/server.js
+            cmd:          set PORT=4000 && node apps/v4\server.js
+
+          Then open http://localhost:4000
+          EOF
+
+      - name: Smoke test the bundle
+        working-directory: apps/v4
+        run: |
+          set -euo pipefail
+          cd "$APP_DIR"
+          PORT=4123 HOSTNAME=127.0.0.1 node server.js > "$RUNNER_TEMP/next-standalone.log" 2>&1 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:4123/; then
+              break
+            fi
+            sleep 2
+            if [ "$i" = "60" ]; then
+              echo "server did not answer within 120s" >&2
+              cat "$RUNNER_TEMP/next-standalone.log" || true
+              exit 1
+            fi
+          done
+          curl -sf -o /dev/null http://127.0.0.1:4123/
+          curl -sf -o /dev/null http://127.0.0.1:4123/docs
+          echo "smoke test passed: / and /docs served"
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-standalone
+          path: apps/v4/.next/standalone
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Job summary
+        run: |
+          {
+            echo "## GEPA Build"
+            echo "- commit: \`${{ github.sha }}\`"
+            echo "- artifact: \`v4-standalone\` — download, unzip, then run \`PORT=4000 node apps/v4/server.js\`"
+          } >> "$GITHUB_STEP_SUMMARY"
