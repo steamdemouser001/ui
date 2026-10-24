@@ -78,10 +78,28 @@ jobs:
             echo "no .pnpm hoisted store found" >&2
           fi
 
-      - name: Write run instructions into bundle
-        working-directory: apps/v4/.next/standalone
+      # cp -rL flattens the pnpm symlink/hardlink farm into plain real files.
+      # Tarring the original tree with --dereference races with tar's link
+      # bookkeeping ("File removed before we read it"), and re-extracted link
+      # entries are useless on Windows anyway. Resolution from the flat copy
+      # works because the hoisted-deps copy above put every runtime package at
+      # node_modules top level (validated locally on Windows).
+      - name: Flatten bundle into real files
+        working-directory: apps/v4
         run: |
-          cat > RUN.md <<'EOF'
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/v4-bundle"
+          cp -rL .next/standalone "$RUNNER_TEMP/v4-bundle"
+          if find "$RUNNER_TEMP/v4-bundle" -type l | grep -q .; then
+            echo "symlinks remain after flatten:" >&2
+            find "$RUNNER_TEMP/v4-bundle" -type l | head >&2
+            exit 1
+          fi
+          du -sh "$RUNNER_TEMP/v4-bundle"
+
+      - name: Write run instructions into bundle
+        run: |
+          cat > "$RUNNER_TEMP/v4-bundle/RUN.md" <<'EOF'
           # Standalone build of apps/v4 (shadcn/ui docs + GEPA pages)
 
           The GitHub artifact zip holds a single v4-standalone.tar.gz. Extract it
@@ -95,11 +113,11 @@ jobs:
           Then open http://localhost:4000
           EOF
 
-      - name: Smoke test the bundle
-        working-directory: apps/v4
+      - name: Smoke test the flattened bundle
         run: |
           set -euo pipefail
-          cd "$APP_DIR"
+          server="$(find "$RUNNER_TEMP/v4-bundle" -name server.js -not -path '*/node_modules/*' -type f | head -n 1)"
+          cd "$(dirname "$server")"
           PORT=4123 HOSTNAME=127.0.0.1 node server.js > "$RUNNER_TEMP/next-standalone.log" 2>&1 &
           pid=$!
           trap 'kill $pid 2>/dev/null || true' EXIT
@@ -118,15 +136,10 @@ jobs:
           curl -sf -o /dev/null http://127.0.0.1:4123/docs
           echo "smoke test passed: / and /docs served"
 
-      # upload-artifact silently skips symlinks, and the standalone tree is
-      # full of them (pnpm node_modules layout, .next internals) — the first
-      # attempt shipped 136MB of source without any compiled output.
-      # Dereference everything into one tar.gz and upload that file instead.
       - name: Package bundle into a single tar.gz
-        working-directory: apps/v4
         run: |
           set -euo pipefail
-          tar --dereference -czf "$RUNNER_TEMP/v4-standalone.tar.gz" -C .next/standalone .
+          tar -czf "$RUNNER_TEMP/v4-standalone.tar.gz" -C "$RUNNER_TEMP/v4-bundle" .
           ls -lh "$RUNNER_TEMP/v4-standalone.tar.gz"
 
       - name: Upload bundle artifact
