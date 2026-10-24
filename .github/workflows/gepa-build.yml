@@ -104,7 +104,7 @@ jobs:
       # attempt shipped 136MB of source without any compiled output.
       # Dereference everything into one tar.gz and upload that file instead.
       - name: Package bundle into a single tar.gz
-        working-directory: apps/v4/.next
+        working-directory: apps/v4
         run: |
           set -euo pipefail
           tar --dereference -czf "$RUNNER_TEMP/v4-standalone.tar.gz" -C .next/standalone .
