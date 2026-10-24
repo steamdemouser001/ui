@@ -65,9 +65,9 @@ jobs:
           cat > RUN.md <<'EOF'
           # Standalone build of apps/v4 (shadcn/ui docs + GEPA pages)
 
-          Requires only Node.js >= 20 on the machine that runs it — no install step.
-
-          From this folder:
+          The GitHub artifact zip holds a single v4-standalone.tar.gz. Extract it
+          first (Windows: `tar -xzf v4-standalone.tar.gz`), then from the
+          extracted folder:
 
             Linux/macOS:  PORT=4000 node apps/v4/server.js
             PowerShell:   $env:PORT=4000; node apps/v4/server.js
@@ -99,11 +99,22 @@ jobs:
           curl -sf -o /dev/null http://127.0.0.1:4123/docs
           echo "smoke test passed: / and /docs served"
 
+      # upload-artifact silently skips symlinks, and the standalone tree is
+      # full of them (pnpm node_modules layout, .next internals) — the first
+      # attempt shipped 136MB of source without any compiled output.
+      # Dereference everything into one tar.gz and upload that file instead.
+      - name: Package bundle into a single tar.gz
+        working-directory: apps/v4/.next
+        run: |
+          set -euo pipefail
+          tar --dereference -czf "$RUNNER_TEMP/v4-standalone.tar.gz" -C .next/standalone .
+          ls -lh "$RUNNER_TEMP/v4-standalone.tar.gz"
+
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
           name: v4-standalone
-          path: apps/v4/.next/standalone
+          path: ${{ runner.temp }}/v4-standalone.tar.gz
           if-no-files-found: error
           retention-days: 14
 
@@ -112,5 +123,5 @@ jobs:
           {
             echo "## GEPA Build"
             echo "- commit: \`${{ github.sha }}\`"
-            echo "- artifact: \`v4-standalone\` — download, unzip, then run \`PORT=4000 node apps/v4/server.js\`"
+            echo "- artifact: \`v4-standalone\` — download, unzip, \`tar -xzf v4-standalone.tar.gz\`, then run \`PORT=4000 node apps/v4/server.js\`"
           } >> "$GITHUB_STEP_SUMMARY"
