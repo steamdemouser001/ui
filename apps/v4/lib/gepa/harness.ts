@@ -41,6 +41,13 @@ export class HarnessAbortError extends Error {
   }
 }
 
+/** Claude Code 执行过程中的实时活动（供 UI 直播展示）。 */
+export interface ClaudeCodeActivity {
+  kind: "tool"
+  name: string
+  inputPreview: string
+}
+
 export interface ClaudeCodeRunInput {
   config: HarnessConfig
   cwd: string
@@ -51,6 +58,8 @@ export interface ClaudeCodeRunInput {
   taskId: string
   runId: string
   signal?: AbortSignal
+  /** 工具调用发生时的实时回调；抛错不会影响执行。 */
+  onActivity?: (activity: ClaudeCodeActivity) => void
 }
 
 export interface ClaudeCodeRunResult {
@@ -589,6 +598,17 @@ export async function runClaudeCode(
                 }
                 toolCalls.push(call)
                 if (block.id) pending.set(block.id, call)
+                if (input.onActivity) {
+                  try {
+                    input.onActivity({
+                      kind: "tool",
+                      name: call.name,
+                      inputPreview: truncate(call.input, 200),
+                    })
+                  } catch {
+                    // 直播回调失败不影响 rollout
+                  }
+                }
               }
             }
             return

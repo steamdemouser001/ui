@@ -1,17 +1,33 @@
 import { errorMessage, fail, ok, readJsonBody } from "@/lib/gepa/http"
 import {
+  approveCandidate,
   pauseRun,
+  promoteCandidate,
+  rejectCandidate,
   resumeRun,
+  setLiveBudget,
   startRun,
   stepRun,
   stopRun,
 } from "@/lib/gepa/run-manager"
 import { readTask } from "@/lib/gepa/storage"
+import { sanitizeIteration } from "@/lib/gepa/task-service"
+import { writeTask } from "@/lib/gepa/storage"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const ACTIONS = ["start", "pause", "resume", "stop", "step"] as const
+const ACTIONS = [
+  "start",
+  "pause",
+  "resume",
+  "stop",
+  "step",
+  "approve",
+  "reject",
+  "promote",
+  "setBudget",
+] as const
 type RunAction = (typeof ACTIONS)[number]
 
 type RouteContext = { params: Promise<{ taskId: string }> }
@@ -34,6 +50,13 @@ function optionalNumber(value: unknown, label: string): number | undefined {
   return value
 }
 
+function requireString(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${label}不能为空`)
+  }
+  return value.trim()
+}
+
 export async function POST(request: Request, context: RouteContext) {
   const { taskId } = await context.params
 
@@ -47,7 +70,9 @@ export async function POST(request: Request, context: RouteContext) {
     return fail("请求体必须是 JSON 对象")
   }
   if (!isRunAction(body.action)) {
-    return fail("action 必须是 start、pause、resume、stop 或 step")
+    return fail(
+      "action 必须是 start、pause、resume、stop、step、approve、reject、promote 或 setBudget"
+    )
   }
 
   try {
@@ -78,7 +103,40 @@ export async function POST(request: Request, context: RouteContext) {
     if (body.action === "stop") {
       return ok({ run: await stopRun(taskId) })
     }
-    return ok({ run: await stepRun(taskId) })
+    if (body.action === "step") {
+      return ok({ run: await stepRun(taskId) })
+    }
+    if (body.action === "approve") {
+      return ok({ run: await approveCandidate(taskId) })
+    }
+    if (body.action === "reject") {
+      return ok({ run: await rejectCandidate(taskId) })
+    }
+    if (body.action === "promote") {
+      const candidateId = requireString(body.candidateId, "candidateId")
+      const runId =
+        typeof body.runId === "string" && body.runId.trim()
+          ? body.runId.trim()
+          : undefined
+      return ok({ run: await promoteCandidate(taskId, candidateId, runId) })
+    }
+
+    // setBudget：任务默认值 + 活动运行实时生效。
+    const budget = optionalNumber(body.budget, "budget")
+    if (budget === undefined) {
+      return fail("setBudget 缺少 budget 参数")
+    }
+    const iteration = sanitizeIteration(task.iteration, { budget })
+    task.iteration = iteration
+    task.updatedAt = new Date().toISOString()
+    await writeTask(task)
+    try {
+      const run = await setLiveBudget(taskId, iteration.budget)
+      return ok({ run })
+    } catch {
+      // 没有活动运行时只更新任务默认值
+      return ok({ run: null, taskUpdated: true })
+    }
   } catch (error) {
     return fail(errorMessage(error), 400)
   }

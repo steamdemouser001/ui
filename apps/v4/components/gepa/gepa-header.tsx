@@ -15,6 +15,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/gepa/monitor": "监控",
   "/gepa/llm": "LLM 供应商",
   "/gepa/agents": "Agents",
+  "/gepa/analyze": "会话分析",
   "/gepa/constraints": "全局约束",
   "/gepa/settings": "设置",
 }

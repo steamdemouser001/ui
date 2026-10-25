@@ -149,13 +149,20 @@ async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs = REQUEST_TIMEOUT_MS,
-  prefix = "LLM 请求"
+  prefix = "LLM 请求",
+  externalSignal?: AbortSignal
 ): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const onAbort = () => controller.abort()
+  if (externalSignal?.aborted) controller.abort()
+  else externalSignal?.addEventListener("abort", onAbort, { once: true })
   try {
     return await fetch(url, { ...init, signal: controller.signal })
   } catch (error) {
+    if (externalSignal?.aborted) {
+      throw new Error("请求已取消")
+    }
     if (controller.signal.aborted) {
       throw new ProviderRequestError(
         `${prefix}超时（${Math.round(timeoutMs / 1000)}s）`,
@@ -168,6 +175,7 @@ async function fetchWithTimeout(
     })
   } finally {
     clearTimeout(timer)
+    externalSignal?.removeEventListener("abort", onAbort)
   }
 }
 
@@ -338,23 +346,30 @@ async function callOpenAiCompatible(
   provider: LlmProvider,
   options: CallProviderOptions,
   generation: ProviderGeneration,
-  maxOutput: number
+  maxOutput: number,
+  signal?: AbortSignal
 ): Promise<Omit<LlmResult, "durationMs">> {
   const url = `${trimBaseUrl(provider.baseUrl)}/chat/completions`
-  const response = await fetchWithTimeout(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${provider.apiKey}`,
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${provider.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: options.model,
+        messages: options.messages,
+        reasoning_effort: generation.reasoningEffort,
+        max_tokens: maxOutput,
+        stream: false,
+      }),
     },
-    body: JSON.stringify({
-      model: options.model,
-      messages: options.messages,
-      reasoning_effort: generation.reasoningEffort,
-      max_tokens: maxOutput,
-      stream: false,
-    }),
-  })
+    REQUEST_TIMEOUT_MS,
+    "LLM 请求",
+    signal
+  )
   if (!response.ok) {
     throw await createHttpError(response)
   }
@@ -385,7 +400,8 @@ async function callAnthropic(
   options: CallProviderOptions,
   generation: ProviderGeneration,
   estimatedInput: number,
-  contextTokens: number
+  contextTokens: number,
+  signal?: AbortSignal
 ): Promise<Omit<LlmResult, "durationMs">> {
   const base = trimBaseUrl(provider.baseUrl)
   const url = /\/v1$/.test(base) ? `${base}/messages` : `${base}/v1/messages`
@@ -415,21 +431,27 @@ async function callAnthropic(
     Math.max(budget + 1024, Math.min(8192, available))
   )
 
-  const response = await fetchWithTimeout(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": provider.apiKey,
-      "anthropic-version": "2023-06-01",
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": provider.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: options.model,
+        max_tokens: maxTokens,
+        thinking: { type: "enabled", budget_tokens: budget },
+        system: system || undefined,
+        messages,
+      }),
     },
-    body: JSON.stringify({
-      model: options.model,
-      max_tokens: maxTokens,
-      thinking: { type: "enabled", budget_tokens: budget },
-      system: system || undefined,
-      messages,
-    }),
-  })
+    REQUEST_TIMEOUT_MS,
+    "LLM 请求",
+    signal
+  )
   if (!response.ok) {
     throw await createHttpError(response)
   }
@@ -978,7 +1000,8 @@ export async function callProviderStream(
 
 export async function callProvider(
   provider: LlmProvider,
-  options: CallProviderOptions
+  options: CallProviderOptions,
+  signal?: AbortSignal
 ): Promise<LlmResult> {
   if (!provider.baseUrl.trim()) {
     throw new Error(`LLM 供应商「${provider.name}」未配置 Base URL`)
@@ -1019,11 +1042,21 @@ export async function callProvider(
               options,
               generation,
               estimatedInput,
-              contextTokens
+              contextTokens,
+              signal
             )
-          : await callOpenAiCompatible(provider, options, generation, maxOutput)
+          : await callOpenAiCompatible(
+              provider,
+              options,
+              generation,
+              maxOutput,
+              signal
+            )
       return { ...result, durationMs: Date.now() - startedAt }
     } catch (error) {
+      if (signal?.aborted) {
+        throw new Error("请求已取消")
+      }
       if (attempt >= maxRetries || !isRetryableError(error)) {
         throw error
       }

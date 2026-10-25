@@ -1,5 +1,7 @@
 import { readLlmCalls, summarizeMetrics, type MetricsSummary } from "./metrics"
-import { listRuns, listTasks } from "./storage"
+import { getActiveRun } from "./run-manager"
+import { listTasks } from "./storage"
+import { latestRunOf } from "./task-service"
 import type { LlmCallLog, RunState, TaskRecord, TaskStatus } from "./types"
 
 const RECENT_CALL_LIMIT = 20
@@ -50,6 +52,12 @@ export interface TaskProgress {
   candidates: number
   updatedAt: string
   href: string
+  /** 活动运行的实时阶段描述（如「执行子代候选（2/3）」）。 */
+  liveLabel?: string
+  /** 运行是否已请求暂停/停止（等待边界生效）。 */
+  pausing?: boolean
+  /** 是否存在等待人工审批的候选。 */
+  awaitingApproval?: boolean
 }
 
 export interface MonitorSnapshot {
@@ -63,6 +71,7 @@ export interface MonitorSnapshot {
     failed: number
     totalIterations: number
     acceptedCandidates: number
+    awaitingApproval: number
   }
   tasks: TaskProgress[]
   recentCalls: LlmCallLog[]
@@ -84,16 +93,6 @@ function safeStatus(value: unknown): TaskStatus {
 
 function safeIso(value: unknown, fallback: string): string {
   return typeof value === "string" && value ? value : fallback
-}
-
-/** 最新 run 读取失败（文件损坏、目录缺失）时视为无运行数据。 */
-async function latestRunOf(taskId: string): Promise<RunState | null> {
-  try {
-    const runs = await listRuns(taskId)
-    return runs[0] ?? null
-  } catch {
-    return null
-  }
 }
 
 function bestScoreOf(run: RunState | null): number | null {
@@ -142,7 +141,15 @@ export async function getMonitorSnapshot(): Promise<MonitorSnapshot> {
   const entries = await Promise.all(
     tasks.map(async (task) => {
       const run = await latestRunOf(task.id)
-      return { progress: toProgress(task, run), accepted: acceptedCountOf(run) }
+      const item = toProgress(task, run)
+      const active = getActiveRun(task.id)
+      if (active) {
+        if (active.progress) item.liveLabel = active.progress.label
+        if (active.control.pauseRequested) item.pausing = true
+        if (active.control.stopRequested) item.pausing = true
+      }
+      if (run?.pendingApproval) item.awaitingApproval = true
+      return { progress: item, accepted: acceptedCountOf(run) }
     })
   )
 
@@ -167,6 +174,7 @@ export async function getMonitorSnapshot(): Promise<MonitorSnapshot> {
         (sum, entry) => sum + entry.accepted,
         0
       ),
+      awaitingApproval: progress.filter((task) => task.awaitingApproval).length,
     },
     tasks: progress,
     recentCalls: calls.slice().reverse(),

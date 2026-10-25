@@ -4,18 +4,12 @@ import * as React from "react"
 import {
   ActivityIcon,
   ChevronRightIcon,
-  FileTextIcon,
   ListChecksIcon,
   ScrollTextIcon,
   TrophyIcon,
 } from "lucide-react"
 
-import type {
-  Candidate,
-  ExampleTrace,
-  IterationRecord,
-  TraceStep,
-} from "@/lib/gepa/types"
+import type { Candidate, IterationRecord } from "@/lib/gepa/types"
 import { Badge } from "@/registry/new-york-v4/ui/badge"
 import {
   Card,
@@ -24,13 +18,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/registry/new-york-v4/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/registry/new-york-v4/ui/dialog"
 import { Progress } from "@/registry/new-york-v4/ui/progress"
 import { ScrollArea } from "@/registry/new-york-v4/ui/scroll-area"
 import {
@@ -42,6 +29,7 @@ import {
   TableRow,
 } from "@/registry/new-york-v4/ui/table"
 
+import { CandidateDialog } from "./candidate-dialog"
 import {
   formatClock,
   formatDateTime,
@@ -51,6 +39,7 @@ import {
   percent,
 } from "./format"
 import { RunStatusBadge } from "./status-badge"
+import { TraceDialog, formatUsd } from "./trace-dialog"
 import type { TaskDetailData } from "./types"
 
 function StatCell({
@@ -127,244 +116,27 @@ function LogList({ detail }: { detail: TaskDetailData }) {
   )
 }
 
-/** 金额格式：固定 4 位小数，例如 $0.0654。 */
-function formatUsd(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value)
-    ? `$${value.toFixed(4)}`
-    : "—"
-}
-
-function TraceField({
-  label,
-  value,
-}: {
-  label: string
-  value: React.ReactNode
-}) {
-  return (
-    <div className="min-w-0 space-y-1">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <div className="text-sm break-words whitespace-pre-wrap">{value}</div>
-    </div>
-  )
-}
-
-function TraceStepItem({
-  step,
-  index,
-}: {
-  step: TraceStep
-  index: number
-}) {
-  return (
-    <li className="space-y-2 rounded-md border bg-muted/20 p-2.5">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-        <Badge variant="outline" className="tabular-nums">
-          步骤 {index + 1}
-        </Badge>
-        <span className="text-sm font-medium">{step.moduleName}</span>
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {step.moduleId}
-        </span>
-        <span className="tabular-nums text-muted-foreground">
-          耗时 {formatDuration(step.durationMs)}
-        </span>
-        {typeof step.exitCode === "number" && (
-          <Badge
-            variant={step.exitCode === 0 ? "secondary" : "destructive"}
-            className="tabular-nums"
-          >
-            退出码 {step.exitCode}
-          </Badge>
-        )}
-        {typeof step.costUsd === "number" && (
-          <span className="tabular-nums text-muted-foreground">
-            成本 {formatUsd(step.costUsd)}
-          </span>
-        )}
-      </div>
-
-      {step.toolCalls && step.toolCalls.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-xs font-medium text-muted-foreground">
-            工具调用 {step.toolCalls.length} 次
-          </p>
-          <ul className="space-y-1.5">
-            {step.toolCalls.map((call, callIndex) => (
-              <li
-                key={`${call.name}-${callIndex}`}
-                className="rounded border bg-background/60 p-2"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs font-medium">
-                    {call.name}
-                  </span>
-                  {call.isError && (
-                    <Badge variant="destructive" className="text-[10px]">
-                      失败
-                    </Badge>
-                  )}
-                </div>
-                <div className="mt-1.5 space-y-1">
-                  <p className="text-[11px] text-muted-foreground">input</p>
-                  <pre className="max-h-32 overflow-auto rounded bg-muted/40 p-1.5 font-mono text-xs break-words whitespace-pre-wrap">
-                    {call.input}
-                  </pre>
-                  {call.output && (
-                    <>
-                      <p className="text-[11px] text-muted-foreground">
-                        output
-                      </p>
-                      <pre className="max-h-32 overflow-auto rounded bg-muted/40 p-1.5 font-mono text-xs break-words whitespace-pre-wrap">
-                        {call.output}
-                      </pre>
-                    </>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {step.stdout && (
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">stdout</p>
-          <pre className="max-h-40 overflow-auto rounded bg-muted/40 p-2 font-mono text-xs break-words whitespace-pre-wrap">
-            {step.stdout}
-          </pre>
-        </div>
-      )}
-
-      {step.stderr && (
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">stderr</p>
-          <pre className="max-h-40 overflow-auto rounded border border-destructive/30 bg-destructive/5 p-2 font-mono text-xs text-destructive break-words whitespace-pre-wrap">
-            {step.stderr}
-          </pre>
-        </div>
-      )}
-    </li>
-  )
-}
-
-function ExampleTraceCard({
-  trace,
-  index,
-}: {
-  trace: ExampleTrace
-  index: number
-}) {
-  const steps = trace.steps ?? []
-
-  return (
-    <div className="space-y-3 rounded-lg border p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-sm font-medium">{trace.exampleId}</span>
-        <Badge variant="secondary" className="tabular-nums">
-          分数 {formatScore(trace.score)}
-        </Badge>
-        {trace.error && <Badge variant="destructive">执行失败</Badge>}
-        <span className="ml-auto text-xs text-muted-foreground">
-          样本 {index + 1}
-        </span>
-      </div>
-
-      {trace.error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive break-words whitespace-pre-wrap">
-          {trace.error}
-        </div>
-      )}
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <TraceField label="输入" value={trace.input || "—"} />
-        {trace.expected && (
-          <TraceField label="期望输出" value={trace.expected} />
-        )}
-        <TraceField label="最终输出" value={trace.output || "—"} />
-        <TraceField label="反馈" value={trace.feedback || "—"} />
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-xs font-medium text-muted-foreground">
-          执行步骤 {steps.length} 个
-        </p>
-        {steps.length === 0 ? (
-          <p className="text-xs text-muted-foreground">该样本没有执行步骤</p>
-        ) : (
-          <ol className="space-y-2">
-            {steps.map((step, stepIndex) => (
-              <TraceStepItem
-                key={`${step.moduleId}-${stepIndex}`}
-                step={step}
-                index={stepIndex}
-              />
-            ))}
-          </ol>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function TraceDialog({
-  record,
-  moduleName,
-  onOpenChange,
-}: {
-  record: IterationRecord | null
-  moduleName: string | null
-  onOpenChange: (open: boolean) => void
-}) {
-  const traces = record?.traces ?? []
-
-  return (
-    <Dialog open={record !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>
-            {record ? `第 ${record.index} 轮轨迹` : "迭代轨迹"}
-          </DialogTitle>
-          <DialogDescription>
-            {record
-              ? `改进前 ${formatScore(record.beforeScore)} → 改进后 ${formatScore(
-                  record.afterScore
-                )}，${
-                  record.accepted ? "该轮改进被接受" : "该轮改进未被接受"
-                }${moduleName ? ` · 模块 ${moduleName}` : ""}`
-              : ""}
-          </DialogDescription>
-        </DialogHeader>
-
-        {record &&
-          (traces.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              该轮没有轨迹
-            </p>
-          ) : (
-            <ScrollArea className="max-h-[70vh] pr-3">
-              <div className="space-y-3">
-                {traces.map((trace, index) => (
-                  <ExampleTraceCard
-                    key={`${trace.exampleId}-${index}`}
-                    trace={trace}
-                    index={index}
-                  />
-                ))}
-              </div>
-            </ScrollArea>
-          ))}
-      </DialogContent>
-    </Dialog>
-  )
+/** 本轮耗时：finishedAt - startedAt，缺失或非法时返回 null。 */
+function iterationDurationMs(record: IterationRecord): number | null {
+  if (!record.finishedAt) return null
+  const start = new Date(record.startedAt).getTime()
+  const end = new Date(record.finishedAt).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return null
+  }
+  return end - start
 }
 
 function IterationTable({
   iterations,
   moduleNames,
+  taskId,
+  runId,
 }: {
   iterations: IterationRecord[]
   moduleNames: Map<string, string>
+  taskId: string
+  runId: string
 }) {
   const rows = [...iterations].reverse()
   const [selected, setSelected] = React.useState<IterationRecord | null>(null)
@@ -399,8 +171,9 @@ function IterationTable({
                   <TableHead>模块</TableHead>
                   <TableHead className="w-20">改进前</TableHead>
                   <TableHead className="w-20">改进后</TableHead>
-                  <TableHead className="w-20">结果</TableHead>
+                  <TableHead>结果</TableHead>
                   <TableHead>反思</TableHead>
+                  <TableHead className="w-20">本轮耗时</TableHead>
                   <TableHead className="w-32">完成时间</TableHead>
                 </TableRow>
               </TableHeader>
@@ -432,16 +205,34 @@ function IterationTable({
                       {formatScore(record.afterScore)}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant={record.accepted ? "secondary" : "outline"}
-                        className={
-                          record.accepted
-                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                            : ""
-                        }
-                      >
-                        {record.accepted ? "接受" : "拒绝"}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge
+                          variant={record.accepted ? "secondary" : "outline"}
+                          className={
+                            record.accepted
+                              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                              : ""
+                          }
+                        >
+                          {record.accepted ? "接受" : "拒绝"}
+                        </Badge>
+                        {record.humanDecision === "approved" && (
+                          <Badge
+                            variant="outline"
+                            className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                          >
+                            人工已批准
+                          </Badge>
+                        )}
+                        {record.humanDecision === "rejected" && (
+                          <Badge
+                            variant="outline"
+                            className="border-destructive/30 bg-destructive/10 text-destructive"
+                          >
+                            人工已否决
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="max-w-64">
                       <p
@@ -450,6 +241,9 @@ function IterationTable({
                       >
                         {record.reflection || "—"}
                       </p>
+                    </TableCell>
+                    <TableCell className="text-xs tabular-nums text-muted-foreground">
+                      {formatDuration(iterationDurationMs(record))}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
@@ -468,6 +262,8 @@ function IterationTable({
       <TraceDialog
         record={selected}
         moduleName={selectedModuleName}
+        taskId={taskId}
+        runId={runId}
         onOpenChange={(open) => {
           if (!open) setSelected(null)
         }}
@@ -476,99 +272,14 @@ function IterationTable({
   )
 }
 
-function CandidateDialog({
-  candidate,
-  isBest,
-  inFrontier,
-  onOpenChange,
+export function RunTab({
+  detail,
+  historical = false,
 }: {
-  candidate: Candidate | null
-  isBest: boolean
-  inFrontier: boolean
-  onOpenChange: (open: boolean) => void
+  detail: TaskDetailData
+  /** 是否查看历史运行快照（来自运行历史入口）。 */
+  historical?: boolean
 }) {
-  return (
-    <Dialog open={candidate !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-2">
-            {candidate?.id}
-            {isBest && <Badge>最佳</Badge>}
-            {inFrontier && <Badge variant="secondary">帕累托前沿</Badge>}
-          </DialogTitle>
-          <DialogDescription>
-            {candidate
-              ? `第 ${candidate.iteration} 轮生成，父代 ${
-                  candidate.parentId ?? "无（种子候选）"
-                }，平均分 ${formatScore(candidate.averageScore)}`
-              : ""}
-          </DialogDescription>
-        </DialogHeader>
-
-        {candidate && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-2 text-xs">
-              <Badge variant="outline">
-                已评估样本 {Object.keys(candidate.scores).length}
-              </Badge>
-              <Badge variant="outline">
-                反思 {candidate.reflections.length} 条
-              </Badge>
-              <Badge variant="outline">
-                创建于 {formatDateTime(candidate.createdAt)}
-              </Badge>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="flex items-center gap-2 text-sm font-medium">
-                <FileTextIcon className="size-4" />
-                模块提示词
-              </h4>
-              <div className="space-y-3">
-                {candidate.modules.map((module) => (
-                  <div key={module.id} className="rounded-md border p-3">
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium">{module.name}</span>
-                      <Badge
-                        variant="outline"
-                        className="font-mono text-[10px]"
-                      >
-                        {module.id}
-                      </Badge>
-                    </div>
-                    <pre className="max-h-56 overflow-auto rounded bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
-                      {module.prompt}
-                    </pre>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="flex items-center gap-2 text-sm font-medium">
-                <ActivityIcon className="size-4" />
-                反思记录
-              </h4>
-              {candidate.reflections.length === 0 ? (
-                <p className="text-sm text-muted-foreground">暂无反思记录</p>
-              ) : (
-                <ol className="list-decimal space-y-2 pl-5 text-sm">
-                  {candidate.reflections.map((reflection, index) => (
-                    <li key={index} className="break-words whitespace-pre-wrap">
-                      {reflection}
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-export function RunTab({ detail }: { detail: TaskDetailData }) {
   const { run, task } = detail
   const [selected, setSelected] = React.useState<Candidate | null>(null)
 
@@ -601,6 +312,15 @@ export function RunTab({ detail }: { detail: TaskDetailData }) {
 
   return (
     <div className="space-y-4">
+      {historical && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary">历史运行</Badge>
+          <span className="text-xs text-muted-foreground">
+            正在查看一次历史运行快照，仅供回溯
+          </span>
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
@@ -686,7 +406,12 @@ export function RunTab({ detail }: { detail: TaskDetailData }) {
 
       <LogList detail={detail} />
 
-      <IterationTable iterations={run.iterations} moduleNames={moduleNames} />
+      <IterationTable
+        iterations={run.iterations}
+        moduleNames={moduleNames}
+        taskId={task.id}
+        runId={run.id}
+      />
 
       <Card>
         <CardHeader>
@@ -695,7 +420,7 @@ export function RunTab({ detail }: { detail: TaskDetailData }) {
             候选列表
           </CardTitle>
           <CardDescription>
-            共 {run.candidates.length} 个候选。点击查看模块提示词与反思记录。
+            共 {run.candidates.length} 个候选。点击查看样本得分、模块提示词与父代差异。
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -745,11 +470,14 @@ export function RunTab({ detail }: { detail: TaskDetailData }) {
       </Card>
 
       <CandidateDialog
+        taskId={task.id}
         candidate={selected}
+        candidates={run.candidates}
         isBest={selected?.id === run.bestCandidateId}
         inFrontier={
           selected !== null && run.paretoFrontier.includes(selected.id)
         }
+        historical={historical}
         onOpenChange={(open) => {
           if (!open) setSelected(null)
         }}

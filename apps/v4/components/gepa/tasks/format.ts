@@ -146,6 +146,24 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${(ms / 1000).toFixed(2)}s`
 }
 
+/** 金额格式：固定 4 位小数，例如 $0.0654。 */
+export function formatUsd(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `$${value.toFixed(4)}`
+    : "—"
+}
+
+/** 运行耗时格式：mm:ss（超过 1 小时为 h:mm:ss），用于实时进度计时。 */
+export function formatElapsed(ms: number | null | undefined): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return "—"
+  const totalSeconds = Math.floor(ms / 1000)
+  const seconds = totalSeconds % 60
+  const minutes = Math.floor(totalSeconds / 60) % 60
+  const hours = Math.floor(totalSeconds / 3600)
+  if (hours > 0) return `${hours}:${pad2(minutes)}:${pad2(seconds)}`
+  return `${pad2(minutes)}:${pad2(seconds)}`
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
   if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes < 0) {
     return "—"

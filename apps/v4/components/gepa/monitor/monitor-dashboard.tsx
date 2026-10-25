@@ -25,6 +25,9 @@ import { UsageTrendChart } from "./usage-trend-chart"
 
 const REFRESH_INTERVAL_MS = 5000
 
+// SSE 断连后的退避重连间隔；耗尽后降级为轮询。
+const SSE_RETRY_DELAYS_MS = [2000, 4000, 8000, 16000, 32000]
+
 type LoadMode = "initial" | "silent"
 
 function errorText(error: unknown, fallback: string): string {
@@ -122,7 +125,7 @@ export function MonitorDashboard() {
     void load("initial")
   }, [load])
 
-  // 自动刷新优先使用 SSE 实时推送；连接失败时退回 5 秒轮询。
+  // 自动刷新优先使用 SSE 实时推送；断连后按指数退避重连，耗尽后才降级为轮询。
   React.useEffect(() => {
     if (!autoRefresh) return
     if (typeof window === "undefined" || typeof EventSource === "undefined") {
@@ -131,36 +134,64 @@ export function MonitorDashboard() {
     }
 
     let disposed = false
-    const source = new EventSource("/api/gepa/monitor/events")
+    let retryCount = 0
+    let retryTimer: number | null = null
+    let source: EventSource | null = null
 
-    const handleSnapshot = (event: Event) => {
-      if (disposed) return
-      try {
-        const data = JSON.parse(
-          (event as MessageEvent<string>).data
-        ) as MonitorSnapshot
-        setSnapshot(data)
-        setLastUpdatedAt(new Date().toISOString())
-        setError(null)
-        setLoading(false)
-        setLiveMode("sse")
-      } catch {
-        // 忽略无法解析的快照
+    const clearRetry = () => {
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer)
+        retryTimer = null
       }
     }
-    const handleError = () => {
+
+    const connect = () => {
       if (disposed) return
-      setLiveMode("poll")
-      source.close()
+      source = new EventSource("/api/gepa/monitor/events")
+
+      const handleSnapshot = (event: Event) => {
+        if (disposed) return
+        try {
+          const data = JSON.parse(
+            (event as MessageEvent<string>).data
+          ) as MonitorSnapshot
+          // 成功收到快照说明连接已恢复，重置退避计数。
+          retryCount = 0
+          setSnapshot(data)
+          setLastUpdatedAt(new Date().toISOString())
+          setError(null)
+          setLoading(false)
+          setLiveMode("sse")
+        } catch {
+          // 忽略无法解析的快照
+        }
+      }
+      const handleError = () => {
+        if (disposed) return
+        // EventSource 自带重连不可控，先关闭再按退避间隔自行重连。
+        source?.close()
+        source = null
+        if (retryCount >= SSE_RETRY_DELAYS_MS.length) {
+          setLiveMode("poll")
+          return
+        }
+        const delay = SSE_RETRY_DELAYS_MS[retryCount]
+        retryCount += 1
+        clearRetry()
+        retryTimer = window.setTimeout(connect, delay)
+      }
+
+      source.addEventListener("snapshot", handleSnapshot)
+      source.addEventListener("error", handleError)
     }
 
-    source.addEventListener("snapshot", handleSnapshot)
-    source.addEventListener("error", handleError)
+    connect()
+
     return () => {
       disposed = true
-      source.removeEventListener("snapshot", handleSnapshot)
-      source.removeEventListener("error", handleError)
-      source.close()
+      clearRetry()
+      source?.close()
+      source = null
     }
   }, [autoRefresh])
 

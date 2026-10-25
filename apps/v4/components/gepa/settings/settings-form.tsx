@@ -75,6 +75,7 @@ function iterationToDraft(iteration: IterationDefaults): IterationDraft {
     maxIterations: String(iteration.maxIterations),
     moduleSelection: iteration.moduleSelection,
     mergeEnabled: iteration.mergeEnabled,
+    humanApproval: iteration.humanApproval === true,
   }
 }
 
@@ -351,6 +352,25 @@ export function SettingsForm({
               </div>
               <p className="text-xs text-muted-foreground">
                 当前版本尚未实现 Merge，开启后不会生效，仅为后续升级预留。
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="settings-human-approval">人工审批</Label>
+              <div className="flex h-9 items-center justify-between gap-3 rounded-md border px-3">
+                <span className="text-sm text-muted-foreground">
+                  {draft.humanApproval ? "已开启" : "已关闭"}
+                </span>
+                <Switch
+                  id="settings-human-approval"
+                  checked={draft.humanApproval}
+                  disabled={busy}
+                  onCheckedChange={(checked) =>
+                    updateField("humanApproval", checked)
+                  }
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                开启后，接受的变异候选需人工批准后才进入候选池并继续。
               </p>
             </div>
           </div>

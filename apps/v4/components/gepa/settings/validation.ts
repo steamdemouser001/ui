@@ -125,6 +125,7 @@ export function parseIterationDraft(
     ),
     moduleSelection: draft.moduleSelection,
     mergeEnabled: draft.mergeEnabled,
+    humanApproval: draft.humanApproval,
   }
   if (Object.keys(errors).length > 0) {
     return { ok: false, message: "请修正标红的迭代参数", errors }
@@ -219,6 +220,7 @@ const ITERATION_KEYS = [
   "maxIterations",
   "moduleSelection",
   "mergeEnabled",
+  "humanApproval",
 ] as const
 
 const MONITOR_KEYS = [
@@ -402,6 +404,15 @@ function parseIterationImport(
     errors
   )
   if (mergeEnabled !== undefined) result.mergeEnabled = mergeEnabled
+
+  const humanApproval = readImportBoolean(
+    record,
+    "humanApproval",
+    "人工审批开关",
+    "iteration",
+    errors
+  )
+  if (humanApproval !== undefined) result.humanApproval = humanApproval
 
   return result
 }

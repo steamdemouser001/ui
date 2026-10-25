@@ -14,6 +14,7 @@ export const DEFAULT_ITERATION: IterationDefaults = {
   maxIterations: 20,
   moduleSelection: "round-robin",
   mergeEnabled: false,
+  humanApproval: false,
 }
 
 export const DEFAULT_PROVIDER_GENERATION: ProviderGeneration = {
@@ -272,10 +273,13 @@ const ORCHESTRATOR_PROMPT = `以下是当前 GEPA 优化任务、运行状态、
 - {"type":"resume"}：继续
 - {"type":"stop"}：停止
 - {"type":"step"}：单步执行
-- {"type":"setBudget","budget":数字}：设置预算
+- {"type":"setBudget","budget":数字}：设置预算（运行中也可实时调整）
 - {"type":"setMinibatch","minibatchSize":数字}：设置 minibatch 大小
 - {"type":"setIterationLimit","maxIterations":数字}：设置最大迭代轮数
 - {"type":"updateModulePrompt","moduleId":"模块 id","prompt":"新提示词"}：更新模块提示词
+- {"type":"approve","candidateId":"候选 id"}：批准等待人工审批的候选并继续运行
+- {"type":"reject","candidateId":"候选 id"}：否决等待人工审批的候选
+- {"type":"promote","candidateId":"候选 id"}：将指定候选人工设为最佳
 - {"type":"note","note":"说明"}：记录一条备注
 
 要求：
@@ -319,6 +323,9 @@ export const CONTROLLER_PROMPT = `以下是当前 GEPA 控制台的全部任务�
 - {"type":"setMinibatch","taskId":"任务 id","minibatchSize":数字}
 - {"type":"setIterationLimit","taskId":"任务 id","maxIterations":数字}
 - {"type":"updateModulePrompt","taskId":"任务 id","moduleId":"模块 id","prompt":"新提示词"}
+- {"type":"approve","taskId":"任务 id","candidateId":"候选 id"}：批准等待人工审批的候选
+- {"type":"reject","taskId":"任务 id","candidateId":"候选 id"}：否决等待人工审批的候选
+- {"type":"promote","taskId":"任务 id","candidateId":"候选 id"}：将指定候选人工设为最佳
 - {"type":"note","taskId":"任务 id","note":"说明"}
 
 要求：

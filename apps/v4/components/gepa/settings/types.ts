@@ -9,6 +9,7 @@ export interface IterationDraft {
   maxIterations: string
   moduleSelection: "round-robin" | "random"
   mergeEnabled: boolean
+  humanApproval: boolean
 }
 
 export interface MonitorDraft {

@@ -7,7 +7,13 @@ import {
   type ProviderStreamHandlers,
 } from "./providers"
 import { readAgents, readSettings, resolveProvider } from "./storage"
-import type { AgentConfig, AgentId, LlmCallLog, LlmProvider } from "./types"
+import type {
+  AgentConfig,
+  AgentId,
+  LlmCallLog,
+  LlmProvider,
+  MonitorConfig,
+} from "./types"
 
 export function renderPrompt(
   template: string,
@@ -25,6 +31,19 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+/** 按监控定价估算单次调用成本（与 metrics.ts 的口径一致）。 */
+export function estimateCallCost(
+  pricing: MonitorConfig,
+  usage: { inputTokens: number; outputTokens: number; cacheTokens: number }
+): number {
+  const billableInput = Math.max(0, usage.inputTokens - usage.cacheTokens)
+  return (
+    (billableInput / 1_000_000) * pricing.inputCostPerMillion +
+    (usage.cacheTokens / 1_000_000) * pricing.cacheCostPerMillion +
+    (usage.outputTokens / 1_000_000) * pricing.outputCostPerMillion
+  )
+}
+
 async function safeLog(log: Omit<LlmCallLog, "id" | "at">): Promise<void> {
   try {
     await logLlmCall(log)
@@ -39,6 +58,7 @@ interface AgentRunContext {
   model: string
   prompt: string
   messages: LlmMessage[]
+  pricing: MonitorConfig
 }
 
 async function resolveAgentRun(
@@ -71,23 +91,30 @@ async function resolveAgentRun(
     model,
     prompt,
     messages: [{ role: "system", content: prompt }],
+    pricing: settings.monitor,
   }
+}
+
+export type AgentRunResult = LlmResult & {
+  agent: AgentConfig
+  provider: LlmProvider
+  /** 按监控定价估算的本次调用成本（美元）。 */
+  costUsd: number
 }
 
 export async function runAgent(
   agentId: AgentId,
   variables: Record<string, string>,
-  meta?: { taskId?: string; runId?: string }
-): Promise<LlmResult & { agent: AgentConfig; provider: LlmProvider }> {
+  meta?: { taskId?: string; runId?: string },
+  signal?: AbortSignal
+): Promise<AgentRunResult> {
   const context = await resolveAgentRun(agentId, variables)
-  const { agent, provider, model, prompt, messages } = context
+  const { agent, provider, model, prompt, messages, pricing } = context
   const startedAt = Date.now()
 
   try {
-    const result = await callProvider(provider, {
-      model,
-      messages,
-    })
+    const result = await callProvider(provider, { model, messages }, signal)
+    const costUsd = estimateCallCost(pricing, result)
     await safeLog({
       providerId: provider.id,
       providerName: provider.name,
@@ -100,9 +127,11 @@ export async function runAgent(
       cacheTokens: result.cacheTokens,
       durationMs: result.durationMs,
       success: true,
+      costUsd,
     })
-    return { ...result, agent, provider }
+    return { ...result, agent, provider, costUsd }
   } catch (error) {
+    if (signal?.aborted) throw error
     const message = error instanceof Error ? error.message : String(error)
     await safeLog({
       providerId: provider.id,
@@ -129,9 +158,9 @@ export async function runAgentStream(
   handlers: ProviderStreamHandlers = {},
   meta?: { taskId?: string; runId?: string },
   signal?: AbortSignal
-): Promise<LlmResult & { agent: AgentConfig; provider: LlmProvider }> {
+): Promise<AgentRunResult> {
   const context = await resolveAgentRun(agentId, variables)
-  const { agent, provider, model, prompt, messages } = context
+  const { agent, provider, model, prompt, messages, pricing } = context
   const startedAt = Date.now()
 
   try {
@@ -141,6 +170,7 @@ export async function runAgentStream(
       handlers,
       signal
     )
+    const costUsd = estimateCallCost(pricing, result)
     await safeLog({
       providerId: provider.id,
       providerName: provider.name,
@@ -153,8 +183,9 @@ export async function runAgentStream(
       cacheTokens: result.cacheTokens,
       durationMs: result.durationMs,
       success: true,
+      costUsd,
     })
-    return { ...result, agent, provider }
+    return { ...result, agent, provider, costUsd }
   } catch (error) {
     if (!signal?.aborted) {
       const message = error instanceof Error ? error.message : String(error)
@@ -212,8 +243,13 @@ export function parseJsonLoose<T>(raw: string): T {
 export async function runAgentJson<T>(
   agentId: AgentId,
   variables: Record<string, string>,
-  meta?: { taskId?: string; runId?: string }
-): Promise<{ data: T; raw: string }> {
-  const result = await runAgent(agentId, variables, meta)
-  return { data: parseJsonLoose<T>(result.text), raw: result.text }
+  meta?: { taskId?: string; runId?: string },
+  signal?: AbortSignal
+): Promise<{ data: T; raw: string; costUsd: number }> {
+  const result = await runAgent(agentId, variables, meta, signal)
+  return {
+    data: parseJsonLoose<T>(result.text),
+    raw: result.text,
+    costUsd: result.costUsd,
+  }
 }

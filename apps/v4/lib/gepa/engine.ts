@@ -1,17 +1,21 @@
 import { randomUUID } from "node:crypto"
 
+import { describeConstraints } from "./constraints"
 import { HarnessAbortError, runClaudeCode } from "./harness"
 import { parseJsonLoose, runAgent, runAgentJson } from "./llm"
+import { emitRunEvent } from "./run-events"
 import { runRawCommand } from "./sandbox"
 import { prepareRollout } from "./storage"
 import type {
   Candidate,
   DatasetExample,
   ExampleTrace,
-  GlobalConstraints,
   GlobalSettings,
   IterationRecord,
   RunLogEntry,
+  RunEventType,
+  RunPhase,
+  RunProgress,
   RunState,
   SkillModule,
   TaskRecord,
@@ -22,10 +26,31 @@ import type {
 /** 分数比较容差：用于帕累托并列判断。 */
 export const SCORE_EPSILON = 1e-9
 
+/** 样本 rollout 的进度上下文，随执行传给事件钩子。 */
+export interface RolloutProgressContext {
+  phase: RunPhase
+  iteration: number
+  moduleId?: string
+  moduleName?: string
+}
+
+/** 引擎执行过程中的实时回调，由 runIteration 注入以驱动进度与事件。 */
+export interface EngineHooks {
+  /** Claude Code 工具调用发生时回调（实时）。 */
+  onToolActivity?: (info: {
+    candidateId: string
+    exampleId: string
+    moduleId?: string
+    name: string
+    inputPreview: string
+  }) => void
+}
+
 export interface EngineMeta {
   taskId: string
   runId: string
   settings: GlobalSettings
+  hooks?: EngineHooks
 }
 
 export interface BudgetState {
@@ -51,14 +76,25 @@ export interface ExecuteCandidateOptions {
   budget?: BudgetState
   /** 返回 true 时在当前样本边界停止执行。 */
   shouldStop?: () => boolean
-  /** 运行级取消信号；用于终止 Claude Code 子进程。 */
+  /** 运行级取消信号；用于终止 Claude Code 子进程与 LLM 请求。 */
   signal?: AbortSignal
+  /** 进度上下文：标识当前处于哪个阶段（种子/父代/子代/帕累托）。 */
+  progress?: RolloutProgressContext
+  /** 每个样本 rollout 开始时回调。 */
+  onExampleStart?: (info: {
+    exampleId: string
+    exampleIndex: number
+    exampleTotal: number
+    rolloutDir?: string
+  }) => void
 }
 
 export interface EvaluationResult {
   score: number
   feedback: string
   passed?: boolean
+  /** 评估器 LLM 调用成本（美元）；测试命令评分为 0。 */
+  costUsd?: number
 }
 
 export interface RunIterationOptions {
@@ -280,46 +316,6 @@ export function pickBestCandidate(
   return best
 }
 
-/** 将全局约束压缩为可注入执行器提示词的简要文本。 */
-export function describeConstraints(constraints: GlobalConstraints): string {
-  const lines: string[] = []
-  const tools = constraints.tools
-  if (tools.enabled) {
-    lines.push(
-      `工具：允许 ${tools.allowedTools.join("、") || "无"}；禁止 ${tools.deniedTools.join("、") || "无"}；每轮最多调用 ${tools.maxCallsPerIteration} 次。`
-    )
-    lines.push(
-      tools.requireApprovalForWrite
-        ? "写入类工具需要人工确认。"
-        : "写入类工具无需人工确认。"
-    )
-    lines.push(
-      tools.allowNetwork
-        ? `允许网络访问${tools.allowedHosts.length > 0 ? `（仅限 ${tools.allowedHosts.join("、")}）` : ""}。`
-        : "禁止网络访问。"
-    )
-  } else {
-    lines.push("工具调用已禁用。")
-  }
-
-  const bash = constraints.bash
-  if (bash.enabled) {
-    lines.push(
-      `Bash：允许 ${bash.allowedCommands.join("、") || "无"}；禁止 ${bash.deniedCommands.join("、") || "无"}；超时 ${bash.timeoutMs}ms；输出上限 ${bash.maxOutputBytes} 字节。`
-    )
-    if (!bash.allowShellOperators) {
-      lines.push("禁止使用 shell 操作符（管道、重定向、&& 等）。")
-    }
-    if (bash.workingDirOnly) {
-      lines.push("只允许在任务工作目录内操作。")
-    }
-  } else {
-    lines.push("Bash 已禁用。")
-  }
-
-  return lines.join("\n")
-}
-
 /** 用任务的初始模块创建种子候选。 */
 export function createSeedCandidate(task: TaskRecord): Candidate {
   return {
@@ -339,16 +335,23 @@ function llmMeta(meta: EngineMeta): { taskId: string; runId: string } {
   return { taskId: meta.taskId, runId: meta.runId }
 }
 
+interface ExecuteExampleOptions {
+  signal?: AbortSignal
+  progress?: RolloutProgressContext
+  /** rollout 就绪后回调（携带 rollout 目录）。 */
+  emitStart?: (rolloutDir?: string) => void
+}
+
 /**
  * 按候选的模块顺序执行一个样本。
- * 每个模块都会调用执行器；模块失败时抛错，由上层统一处理。
+ * 每个模块都会调用执行器；模块失败时返回带 error 的结果，由上层记 0 分。
  */
 async function executeExample(
   task: TaskRecord,
   candidate: Candidate,
   example: DatasetExample,
   meta: EngineMeta,
-  signal?: AbortSignal
+  options: ExecuteExampleOptions = {}
 ): Promise<ExecutionResult> {
   const harness = meta.settings.harness
   const useHarness = harness?.kind === "claude-code"
@@ -373,6 +376,7 @@ async function executeExample(
         candidate.id,
         example.id
       )
+      options.emitStart?.(workspaceDir)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       return {
@@ -382,9 +386,11 @@ async function executeExample(
         error: `无法准备 rollout 工作目录：${reason}`,
       }
     }
+  } else {
+    options.emitStart?.()
   }
 
-  for (const module of candidate.modules) {
+  for (const skillModule of candidate.modules) {
     const startedAt = Date.now()
     let text = ""
     let durationMs = 0
@@ -394,13 +400,22 @@ async function executeExample(
         const result = await runClaudeCode({
           config: harness,
           cwd: workspaceDir as string,
-          skill: module.prompt,
+          skill: skillModule.prompt,
           input: example.input,
           previous,
           constraints,
           taskId: task.id,
           runId: meta.runId,
-          signal,
+          signal: options.signal,
+          onActivity: (activity) => {
+            meta.hooks?.onToolActivity?.({
+              candidateId: candidate.id,
+              exampleId: example.id,
+              moduleId: skillModule.id,
+              name: activity.name,
+              inputPreview: activity.inputPreview,
+            })
+          },
         })
         text = result.output
         durationMs = result.durationMs
@@ -410,9 +425,9 @@ async function executeExample(
         lastStderr = result.stderr
         allToolCalls.push(...result.toolCalls)
         steps.push({
-          moduleId: module.id,
-          moduleName: module.name,
-          prompt: module.prompt,
+          moduleId: skillModule.id,
+          moduleName: skillModule.name,
+          prompt: skillModule.prompt,
           input: steps.length === 0 ? example.input : previous,
           output: text,
           durationMs,
@@ -425,7 +440,7 @@ async function executeExample(
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
         const aborted =
-          signal?.aborted === true || error instanceof HarnessAbortError
+          options.signal?.aborted === true || error instanceof HarnessAbortError
         return {
           exampleId: example.id,
           output,
@@ -433,7 +448,7 @@ async function executeExample(
           workspaceDir,
           error: aborted
             ? "Claude Code 执行已取消"
-            : `任务「${task.name}」的模块「${module.name}」执行失败：${reason}`,
+            : `任务「${task.name}」的模块「${skillModule.name}」执行失败：${reason}`,
           exitCode: lastExitCode,
           stdout: lastStdout,
           stderr: lastStderr,
@@ -442,33 +457,47 @@ async function executeExample(
         }
       }
     } else {
+      let moduleCostUsd = 0
       try {
         const result = await runAgent(
           "executor",
           {
-            skill: module.prompt,
+            skill: skillModule.prompt,
             input: example.input,
             previous,
             constraints,
           },
-          llmMeta(meta)
+          llmMeta(meta),
+          options.signal
         )
         text = result.text
         durationMs = result.durationMs
+        moduleCostUsd = result.costUsd
+        totalCostUsd += result.costUsd
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
-        throw new Error(
-          `任务「${task.name}」的模块「${module.name}」执行失败：${reason}`
-        )
+        const aborted = options.signal?.aborted === true
+        return {
+          exampleId: example.id,
+          output,
+          steps,
+          workspaceDir,
+          error: aborted
+            ? "执行已取消"
+            : `任务「${task.name}」的模块「${skillModule.name}」执行失败：${reason}`,
+          toolCalls: allToolCalls,
+          costUsd: totalCostUsd,
+        }
       }
 
       steps.push({
-        moduleId: module.id,
-        moduleName: module.name,
-        prompt: module.prompt,
+        moduleId: skillModule.id,
+        moduleName: skillModule.name,
+        prompt: skillModule.prompt,
         input: steps.length === 0 ? example.input : previous,
         output: text,
         durationMs,
+        costUsd: moduleCostUsd,
       })
     }
 
@@ -503,13 +532,24 @@ export async function executeCandidate(
   const results: ExecutionResult[] = []
   const budget = options.budget
 
-  for (const example of examples) {
+  for (let index = 0; index < examples.length; index += 1) {
+    const example = examples[index]
     if (budget && budget.used >= budget.limit) break
     if (options.shouldStop?.()) break
     if (budget) budget.used += 1
-    results.push(
-      await executeExample(task, candidate, example, meta, options.signal)
-    )
+    const result = await executeExample(task, candidate, example, meta, {
+      signal: options.signal,
+      progress: options.progress,
+      emitStart: (rolloutDir) => {
+        options.onExampleStart?.({
+          exampleId: example.id,
+          exampleIndex: index,
+          exampleTotal: examples.length,
+          rolloutDir,
+        })
+      },
+    })
+    results.push(result)
   }
 
   return { results, executed: results.length }
@@ -568,7 +608,8 @@ export async function evaluateExample(
       output,
       skill,
     },
-    llmMeta(meta)
+    llmMeta(meta),
+    signal
   )
 
   const raw = result.text
@@ -578,9 +619,10 @@ export async function evaluateExample(
       score: clamp01(Number(data?.score)),
       feedback: typeof data?.feedback === "string" ? data.feedback : "",
       passed: typeof data?.passed === "boolean" ? data.passed : undefined,
+      costUsd: result.costUsd,
     }
   } catch {
-    return { score: 0, feedback: truncate(raw, 500) }
+    return { score: 0, feedback: truncate(raw, 500), costUsd: result.costUsd }
   }
 }
 
@@ -632,41 +674,44 @@ function formatTraces(traces: ExampleTrace[], moduleId: string): string {
     .join("\n\n")
 }
 
-/** 汇总执行轨迹，调用反思器生成改进后的模块提示词。 */
+/** 汇总反思器输入，调用反思器生成改进后的模块提示词。 */
 export async function reflectModule(
   task: TaskRecord,
   _candidate: Candidate,
-  module: SkillModule,
+  skillModule: SkillModule,
   traces: ExampleTrace[],
-  meta: EngineMeta
-): Promise<{ newPrompt: string; reasoning: string }> {
+  meta: EngineMeta,
+  signal?: AbortSignal
+): Promise<{ newPrompt: string; reasoning: string; costUsd: number }> {
   const feedback = traces
     .map((trace, index) => `${index + 1}. ${trace.feedback || "（无反馈）"}`)
     .join("\n")
   const score = average(traces.map((trace) => trace.score))
 
-  const { data } = await runAgentJson<ReflectorPayload | null>(
+  const { data, costUsd } = await runAgentJson<ReflectorPayload | null>(
     "reflector",
     {
-      moduleName: module.name,
-      currentPrompt: module.prompt,
-      traces: formatTraces(traces, module.id),
+      moduleName: skillModule.name,
+      currentPrompt: skillModule.prompt,
+      traces: formatTraces(traces, skillModule.id),
       score: score.toFixed(3),
       feedback,
     },
-    llmMeta(meta)
+    llmMeta(meta),
+    signal
   )
 
   const newPrompt =
     typeof data?.newPrompt === "string" ? data.newPrompt.trim() : ""
   if (!newPrompt) {
     throw new Error(
-      `反思器未为任务「${task.name}」的模块「${module.name}」返回有效提示词`
+      `反思器未为任务「${task.name}」的模块「${skillModule.name}」返回有效提示词`
     )
   }
   return {
     newPrompt,
     reasoning: typeof data?.reasoning === "string" ? data.reasoning.trim() : "",
+    costUsd,
   }
 }
 
@@ -695,13 +740,17 @@ async function evaluateResults(
   examples: DatasetExample[],
   results: ExecutionResult[],
   meta: EngineMeta,
-  signal?: AbortSignal
-): Promise<ExampleTrace[]> {
+  signal?: AbortSignal,
+  onExample?: (info: { exampleId: string; index: number; total: number }) => void
+): Promise<{ traces: ExampleTrace[]; costUsd: number }> {
   const byId = new Map(examples.map((example) => [example.id, example]))
   const traces: ExampleTrace[] = []
-  for (const result of results) {
+  let costUsd = 0
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index]
     const example = byId.get(result.exampleId)
     if (!example) continue
+    onExample?.({ exampleId: example.id, index, total: results.length })
     const evaluation = await evaluateExample(
       task,
       example,
@@ -710,6 +759,7 @@ async function evaluateResults(
       meta,
       signal
     )
+    costUsd += evaluation.costUsd ?? 0
     traces.push({
       exampleId: example.id,
       input: example.input,
@@ -719,9 +769,10 @@ async function evaluateResults(
       feedback: evaluation.feedback,
       steps: result.steps,
       error: result.error,
+      rolloutDir: result.workspaceDir,
     })
   }
-  return traces
+  return { traces, costUsd }
 }
 
 function addLog(
@@ -745,8 +796,31 @@ function addLog(
 /**
  * 执行一次完整的 GEPA 迭代（反思变异 + 帕累托选择）。
  * 纯函数式地返回新的 RunState，不负责持久化；由 run-manager 写入存储。
+ * 中止信号导致的异常按「已停止」返回，保留中止前的状态而不是标记失败。
  */
 export async function runIteration(
+  task: TaskRecord,
+  run: RunState,
+  meta: EngineMeta,
+  options: RunIterationOptions = {}
+): Promise<RunState> {
+  try {
+    return await runIterationInner(task, run, meta, options)
+  } catch (error) {
+    if (options.signal?.aborted || run.control.stopRequested) {
+      const state: RunState = { ...run, control: run.control }
+      addLog(state, "warning", "收到停止请求，当前轮次已中止")
+      state.status = "stopped"
+      state.finishedAt = nowIso()
+      state.updatedAt = nowIso()
+      state.progress = undefined
+      return state
+    }
+    throw error
+  }
+}
+
+async function runIterationInner(
   task: TaskRecord,
   run: RunState,
   meta: EngineMeta,
@@ -789,6 +863,87 @@ export async function runIteration(
     return state
   }
 
+  // —— 实时进度与事件广播：迭代内每个阶段、每个 rollout 都对 UI 可见。 ——
+  const emitEvent = (
+    type: RunEventType,
+    data: Record<string, unknown>
+  ): void => {
+    emitRunEvent({
+      type,
+      taskId: meta.taskId,
+      runId: meta.runId,
+      at: nowIso(),
+      data,
+    })
+  }
+  const setProgress = (
+    phase: RunPhase,
+    label: string,
+    extra?: Partial<RunProgress>
+  ): void => {
+    state.progress = {
+      phase,
+      label,
+      iteration: state.iteration + 1,
+      ...extra,
+      startedAt: nowIso(),
+    }
+    emitEvent("progress", { progress: state.progress })
+  }
+  const hookedMeta: EngineMeta = {
+    ...meta,
+    hooks: {
+      onToolActivity: (info) => {
+        if (state.progress) {
+          state.progress = { ...state.progress, toolName: info.name }
+        }
+        emitEvent("tool-activity", {
+          ...info,
+          phase: state.progress?.phase,
+        })
+      },
+    },
+  }
+  const runRollouts = (
+    phase: RunPhase,
+    label: string,
+    candidate: Candidate,
+    examples: DatasetExample[],
+    moduleInfo?: { moduleId: string; moduleName: string }
+  ) =>
+    executeCandidate(task, candidate, examples, hookedMeta, {
+      budget,
+      shouldStop,
+      signal: options.signal,
+      progress: {
+        phase,
+        iteration: state.iteration + 1,
+        moduleId: moduleInfo?.moduleId,
+        moduleName: moduleInfo?.moduleName,
+      },
+      onExampleStart: (info) => {
+        setProgress(
+          phase,
+          `${label}（${info.exampleIndex + 1}/${info.exampleTotal}）`,
+          {
+            candidateId: candidate.id,
+            exampleId: info.exampleId,
+            exampleIndex: info.exampleIndex,
+            exampleTotal: info.exampleTotal,
+            rolloutDir: info.rolloutDir,
+            moduleId: moduleInfo?.moduleId,
+            moduleName: moduleInfo?.moduleName,
+          }
+        )
+        emitEvent("rollout-start", {
+          phase,
+          iteration: state.iteration + 1,
+          candidateId: candidate.id,
+          ...info,
+        })
+      },
+    })
+
   const finish = (
     status: RunState["status"],
     message?: string,
@@ -798,6 +953,7 @@ export async function runIteration(
     if (message) addLog(state, level, message)
     if (status === "completed" || status === "stopped" || status === "failed") {
       state.finishedAt = nowIso()
+      state.progress = undefined
     }
     state.budgetUsed = budget.used
     state.updatedAt = nowIso()
@@ -825,27 +981,23 @@ export async function runIteration(
     )
 
     if (seedExamples.length > 0) {
-      const { results } = await executeCandidate(
+      const { results } = await runRollouts("seed", "评估种子候选", seed, seedExamples)
+      addCost(results)
+      setProgress("evaluation", "评估种子候选得分", {
+        candidateId: seed.id,
+        exampleTotal: results.length,
+      })
+      const seedEvaluation = await evaluateResults(
         task,
         seed,
         seedExamples,
-        meta,
-        { budget, shouldStop, signal: options.signal }
+        results,
+        hookedMeta,
+        options.signal
       )
-      addCost(results)
-      const byId = new Map(seedExamples.map((example) => [example.id, example]))
-      for (const result of results) {
-        const example = byId.get(result.exampleId)
-        if (!example) continue
-        const evaluation = await evaluateExample(
-          task,
-          example,
-          result,
-          seed,
-          meta,
-          options.signal
-        )
-        seed.scores[result.exampleId] = evaluation.score
+      state.totalCostUsd = (state.totalCostUsd ?? 0) + seedEvaluation.costUsd
+      for (const trace of seedEvaluation.traces) {
+        seed.scores[trace.exampleId] = trace.score
       }
       seed.averageScore = average(Object.values(seed.scores))
       addLog(
@@ -904,7 +1056,7 @@ export async function runIteration(
     task.iteration.moduleSelection,
     rng
   )
-  const module = parent.modules[moduleIndex]
+  const targetModule = parent.modules[moduleIndex]
   if (task.iteration.moduleSelection === "round-robin") {
     state.moduleCursor = (moduleIndex + 1) % parent.modules.length
   }
@@ -921,14 +1073,23 @@ export async function runIteration(
     return state
   }
 
+  const nextIteration = state.iteration + 1
+  emitEvent("iteration-start", {
+    iteration: nextIteration,
+    parentId: parent.id,
+    moduleId: targetModule.id,
+    moduleName: targetModule.name,
+    minibatch: minibatchIds,
+  })
+
   // 5. 在 minibatch 上执行父代并评分。
   const startedAt = nowIso()
-  const { results: beforeResults } = await executeCandidate(
-    task,
+  const { results: beforeResults } = await runRollouts(
+    "parent-rollout",
+    "执行父代候选",
     parent,
     minibatch,
-    meta,
-    { budget, shouldStop, signal: options.signal }
+    { moduleId: targetModule.id, moduleName: targetModule.name }
   )
   addCost(beforeResults)
   state.budgetUsed = budget.used
@@ -942,14 +1103,20 @@ export async function runIteration(
     return state
   }
 
-  const beforeTraces = await evaluateResults(
+  setProgress("evaluation", "评估父代样本得分", {
+    candidateId: parent.id,
+    exampleTotal: beforeResults.length,
+  })
+  const beforeEvaluation = await evaluateResults(
     task,
     parent,
     minibatch,
     beforeResults,
-    meta,
+    hookedMeta,
     options.signal
   )
+  const beforeTraces = beforeEvaluation.traces
+  state.totalCostUsd = (state.totalCostUsd ?? 0) + beforeEvaluation.costUsd
   const beforeScore = average(beforeTraces.map((trace) => trace.score))
   addLog(
     state,
@@ -971,21 +1138,27 @@ export async function runIteration(
   }
 
   // 6. 反思轨迹并生成新候选。
+  setProgress("reflection", `反思模块「${targetModule.name}」生成新提示词`, {
+    candidateId: parent.id,
+    moduleId: targetModule.id,
+    moduleName: targetModule.name,
+  })
   const reflection = await reflectModule(
     task,
     parent,
-    module,
+    targetModule,
     beforeTraces,
-    meta
+    hookedMeta,
+    options.signal
   )
-  const nextIteration = state.iteration + 1
+  state.totalCostUsd = (state.totalCostUsd ?? 0) + reflection.costUsd
   const child: Candidate = {
     id: `candidate-${nextIteration}`,
     parentId: parent.id,
     iteration: nextIteration,
-    moduleId: module.id,
+    moduleId: targetModule.id,
     modules: parent.modules.map((item) =>
-      item.id === module.id
+      item.id === targetModule.id
         ? { ...item, prompt: reflection.newPrompt }
         : { ...item }
     ),
@@ -999,32 +1172,38 @@ export async function runIteration(
   addLog(
     state,
     "info",
-    `第 ${nextIteration} 轮：反思模块「${module.name}」，生成候选 ${child.id}`,
+    `第 ${nextIteration} 轮：反思模块「${targetModule.name}」，生成候选 ${child.id}`,
     nextIteration
   )
 
   // 7. 新候选在同一个 minibatch 上执行并评分。
-  const { results: afterResults } = await executeCandidate(
-    task,
+  const { results: afterResults } = await runRollouts(
+    "child-rollout",
+    "执行子代候选",
     child,
     minibatch,
-    meta,
-    { budget, shouldStop, signal: options.signal }
+    { moduleId: targetModule.id, moduleName: targetModule.name }
   )
   addCost(afterResults)
   state.budgetUsed = budget.used
 
-  const afterTraces =
+  setProgress("evaluation", "评估子代样本得分", {
+    candidateId: child.id,
+    exampleTotal: afterResults.length,
+  })
+  const afterEvaluation =
     afterResults.length > 0
       ? await evaluateResults(
           task,
           child,
           minibatch,
           afterResults,
-          meta,
+          hookedMeta,
           options.signal
         )
-      : []
+      : { traces: [], costUsd: 0 }
+  const afterTraces = afterEvaluation.traces
+  state.totalCostUsd = (state.totalCostUsd ?? 0) + afterEvaluation.costUsd
   // 仅当子代与父代在同样数量的样本上完成评估时才可比较。
   const afterScore =
     afterTraces.length > 0 && afterTraces.length === beforeTraces.length
@@ -1054,21 +1233,25 @@ export async function runIteration(
     )
     for (const example of remainingParetoExamples) {
       if (budget.used >= budget.limit || shouldStop()) break
-      const { results } = await executeCandidate(task, child, [example], meta, {
-        budget,
-        shouldStop,
-        signal: options.signal,
-      })
+      const { results } = await runRollouts(
+        "pareto-eval",
+        "帕累托集评估",
+        child,
+        [example],
+        { moduleId: targetModule.id, moduleName: targetModule.name }
+      )
       addCost(results)
       if (results.length === 0) break
-      const [trace] = await evaluateResults(
+      const evaluation = await evaluateResults(
         task,
         child,
         [example],
         results,
-        meta,
+        hookedMeta,
         options.signal
       )
+      state.totalCostUsd = (state.totalCostUsd ?? 0) + evaluation.costUsd
+      const [trace] = evaluation.traces
       if (trace) child.scores[example.id] = trace.score
       if (costLimitReached()) break
     }
@@ -1099,15 +1282,15 @@ export async function runIteration(
     )
   }
 
-  // 9. 记录本轮迭代。
+  // 9. 记录本轮迭代；开启人工审批时挂起等待批准/否决。
   const record: IterationRecord = {
     index: nextIteration,
     candidateId: parent.id,
-    moduleId: module.id,
+    moduleId: targetModule.id,
     beforeScore,
     afterScore,
     accepted,
-    reflection: reflection.reasoning || `已更新模块「${module.name}」的提示词`,
+    reflection: reflection.reasoning || `已更新模块「${targetModule.name}」的提示词`,
     traces: beforeTraces,
     startedAt,
     finishedAt: nowIso(),
@@ -1116,6 +1299,14 @@ export async function runIteration(
   state.iteration = nextIteration
   state.budgetUsed = budget.used
   state.updatedAt = nowIso()
+  emitEvent("iteration-end", {
+    iteration: nextIteration,
+    candidateId: child.id,
+    accepted,
+    beforeScore,
+    afterScore,
+    totalCostUsd: state.totalCostUsd,
+  })
 
   if (costLimitReached()) return finishForCost()
 
@@ -1133,11 +1324,49 @@ export async function runIteration(
     return state
   }
 
+  if (accepted && task.iteration.humanApproval === true) {
+    state.pendingApproval = {
+      iteration: nextIteration,
+      candidateId: child.id,
+      moduleId: targetModule.id,
+      moduleName: targetModule.name,
+      parentCandidateId: parent.id,
+      beforeScore,
+      afterScore,
+      reflection: reflection.reasoning,
+      oldPrompt: targetModule.prompt,
+      newPrompt: reflection.newPrompt,
+      createdAt: nowIso(),
+    }
+    state.progress = {
+      phase: "idle",
+      label: "等待人工审批",
+      iteration: nextIteration,
+      candidateId: child.id,
+      moduleId: targetModule.id,
+      moduleName: targetModule.name,
+      startedAt: nowIso(),
+    }
+    finish(
+      "paused",
+      `第 ${nextIteration} 轮：候选 ${child.id} 已接受（${beforeScore.toFixed(3)} → ${afterScore.toFixed(3)}），等待人工审批`,
+      "warning"
+    )
+    emitEvent("approval-requested", { ...state.pendingApproval })
+    return state
+  }
+
   if (shouldStop()) {
     finish(stopStatus(), "收到停止/暂停请求，运行暂停")
     return state
   }
 
+  state.progress = {
+    phase: "idle",
+    label: "等待下一轮迭代",
+    iteration: nextIteration,
+    startedAt: nowIso(),
+  }
   state.status = "running"
   return state
 }

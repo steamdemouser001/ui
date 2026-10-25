@@ -74,10 +74,14 @@ export interface RunSummary {
   budgetUsed: number
   bestScore: number | null
   candidates: number
+  acceptedIterations: number
   startedAt: string
   updatedAt: string
   finishedAt?: string
   error?: string
+  totalCostUsd?: number
+  harnessKind?: string
+  awaitingApproval?: boolean
 }
 
 export interface TaskSummary {
@@ -187,6 +191,12 @@ export function sanitizeIteration(
       throw new Error("mergeEnabled 必须是布尔值")
     }
     next.mergeEnabled = patch.mergeEnabled
+  }
+  if (patch.humanApproval !== undefined) {
+    if (typeof patch.humanApproval !== "boolean") {
+      throw new Error("humanApproval 必须是布尔值")
+    }
+    next.humanApproval = patch.humanApproval
   }
   return next
 }
@@ -599,11 +609,19 @@ function summarizeRun(run: RunState | null): RunSummary | null {
     budgetUsed: Number.isFinite(run.budgetUsed) ? run.budgetUsed : 0,
     bestScore: bestScoreOf(run),
     candidates: Array.isArray(run.candidates) ? run.candidates.length : 0,
+    acceptedIterations: Array.isArray(run.iterations)
+      ? run.iterations.filter((record) => record.accepted).length
+      : 0,
     startedAt: run.startedAt,
     updatedAt: run.updatedAt,
   }
   if (run.finishedAt) summary.finishedAt = run.finishedAt
   if (run.error) summary.error = run.error
+  if (typeof run.totalCostUsd === "number" && Number.isFinite(run.totalCostUsd)) {
+    summary.totalCostUsd = run.totalCostUsd
+  }
+  if (run.harness?.kind) summary.harnessKind = run.harness.kind
+  if (run.pendingApproval) summary.awaitingApproval = true
   return summary
 }
 
@@ -615,6 +633,14 @@ export async function latestRunOf(taskId: string): Promise<RunState | null> {
   } catch {
     return null
   }
+}
+
+/** 任务的全部运行摘要（按开始时间倒序），供运行历史选择器使用。 */
+export async function listRunSummaries(taskId: string): Promise<RunSummary[]> {
+  const runs = await listRuns(taskId).catch(() => [] as RunState[])
+  return runs
+    .map(summarizeRun)
+    .filter((run): run is RunSummary => run !== null)
 }
 
 function toSummary(task: TaskRecord, run: RunState | null): TaskSummary {

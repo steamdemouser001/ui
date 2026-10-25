@@ -12,11 +12,12 @@ import {
   executeTaskAction,
   type OrchestratorActionResult,
 } from "./orchestrator"
-import { listRuns, readRun, readSettings, readTask } from "./storage"
+import { readSettings, readTask } from "./storage"
 import { extractJsonStringField, runAgentJsonStream } from "./stream-json"
 import {
   createTask,
   deleteTask,
+  latestRunOf,
   listTaskSummaries,
   updateTask,
   type TaskSummary,
@@ -24,7 +25,6 @@ import {
 import type {
   OrchestratorAction,
   OrchestratorMessage,
-  RunState,
   TaskRecord,
 } from "./types"
 
@@ -106,15 +106,6 @@ function formatHistory(messages: OrchestratorMessage[]): string {
     .join("\n")
 }
 
-async function latestRunOf(task: TaskRecord): Promise<RunState | null> {
-  if (task.runId) {
-    const run = await readRun(task.id, task.runId).catch(() => null)
-    if (run) return run
-  }
-  const runs = await listRuns(task.id).catch(() => [] as RunState[])
-  return runs[0] ?? null
-}
-
 async function executeControllerAction(
   raw: OrchestratorAction
 ): Promise<OrchestratorActionResult> {
@@ -178,7 +169,7 @@ async function executeControllerAction(
         if (!task) {
           throw new Error(`任务不存在：${taskId}`)
         }
-        const run = await latestRunOf(task)
+        const run = await latestRunOf(taskId)
         const outcome = await executeTaskAction(taskId, action, { task, run })
         // 合并原动作字段（如 taskId），便于前端与历史记录展示。
         return { ...action, ...outcome }

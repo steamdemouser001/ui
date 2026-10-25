@@ -5,7 +5,9 @@ import {
   HashIcon,
   ListTodoIcon,
   SparklesIcon,
+  type LucideIcon,
 } from "lucide-react"
+import type { ReactNode } from "react"
 
 import type { MonitorSnapshot } from "@/lib/gepa/monitor"
 import {
@@ -18,6 +20,15 @@ import {
 
 import { formatCost, formatNumber, formatPercent } from "./format"
 
+interface MetricItem {
+  label: string
+  value: string
+  hint: string
+  /** 追加提示行（如待审批提醒）。 */
+  extra?: ReactNode
+  icon: LucideIcon
+}
+
 interface MetricCardsProps {
   snapshot: MonitorSnapshot
 }
@@ -27,7 +38,7 @@ export function MetricCards({ snapshot }: MetricCardsProps) {
   const successRate =
     metrics.totalCalls > 0 ? metrics.successfulCalls / metrics.totalCalls : null
 
-  const items = [
+  const items: MetricItem[] = [
     {
       label: "LLM 调用总数",
       value: formatNumber(metrics.totalCalls),
@@ -59,6 +70,12 @@ export function MetricCards({ snapshot }: MetricCardsProps) {
       label: "运行中任务",
       value: formatNumber(totals.running),
       hint: `共 ${formatNumber(totals.tasks)} 个任务 · 暂停 ${formatNumber(totals.paused)} 个`,
+      extra:
+        totals.awaitingApproval > 0 ? (
+          <p className="text-amber-600 dark:text-amber-400">
+            {formatNumber(totals.awaitingApproval)} 个任务等待人工审批
+          </p>
+        ) : null,
       icon: ListTodoIcon,
     },
     {
@@ -82,8 +99,9 @@ export function MetricCards({ snapshot }: MetricCardsProps) {
               {item.value}
             </CardTitle>
           </CardHeader>
-          <CardContent className="px-5 text-xs text-muted-foreground">
+          <CardContent className="space-y-1 px-5 text-xs text-muted-foreground">
             {item.hint}
+            {item.extra}
           </CardContent>
         </Card>
       ))}

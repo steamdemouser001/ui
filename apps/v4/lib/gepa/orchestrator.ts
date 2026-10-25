@@ -2,25 +2,28 @@ import { randomUUID } from "node:crypto"
 
 import { describeConstraints } from "./constraints"
 import {
+  approveCandidate,
   getRunStatus,
+  isRunActive,
   pauseRun,
+  promoteCandidate,
+  rejectCandidate,
   resumeRun,
+  setLiveBudget,
   startRun,
   stepRun,
   stopRun,
 } from "./run-manager"
 import {
   appendOrchestratorMessage,
-  listRuns,
   readOrchestratorMessages,
-  readRun,
   readSettings,
   readTask,
   writeRun,
   writeTask,
 } from "./storage"
 import { extractJsonStringField, runAgentJsonStream } from "./stream-json"
-import { sanitizeIteration } from "./task-service"
+import { latestRunOf, sanitizeIteration } from "./task-service"
 import type {
   OrchestratorAction,
   OrchestratorMessage,
@@ -81,15 +84,6 @@ function result(
   return { type: type as OrchestratorAction["type"], ok, message }
 }
 
-async function latestRunOf(task: TaskRecord): Promise<RunState | null> {
-  if (task.runId) {
-    const run = await readRun(task.id, task.runId)
-    if (run) return run
-  }
-  const runs = await listRuns(task.id).catch(() => [] as RunState[])
-  return runs[0] ?? null
-}
-
 function formatTask(task: TaskRecord): string {
   const lines = [
     `名称：${task.name}`,
@@ -132,7 +126,9 @@ function formatRun(run: RunState | null): string {
 
   return [
     `运行：${run.id}`,
-    `状态：${run.status}`,
+    `状态：${run.status}${
+      run.control.pauseRequested ? "（已请求暂停）" : ""
+    }${run.control.stopRequested ? "（已请求停止）" : ""}`,
     `迭代：第 ${run.iteration} 轮`,
     `预算：已用 ${run.budgetUsed} / ${run.budget}`,
     `候选：${run.candidates.length} 个`,
@@ -142,6 +138,10 @@ function formatRun(run: RunState | null): string {
     `帕累托前沿：${
       run.paretoFrontier.length > 0 ? run.paretoFrontier.join("、") : "暂无"
     }`,
+    run.progress ? `当前进度：${run.progress.label}` : "",
+    run.pendingApproval
+      ? `等待人工审批：第 ${run.pendingApproval.iteration} 轮候选 ${run.pendingApproval.candidateId}（模块「${run.pendingApproval.moduleName}」，${run.pendingApproval.beforeScore.toFixed(3)} → ${run.pendingApproval.afterScore.toFixed(3)}），需 approve 或 reject`
+      : "",
     run.error ? `错误：${run.error}` : "",
     "最近日志：",
     ...(logs.length > 0 ? logs : ["（无）"]),
@@ -233,7 +233,10 @@ export async function executeTaskAction(
         context.task.iteration = iteration
         context.task.updatedAt = nowIso()
         await writeTask(context.task)
-        if (context.run && context.run.status !== "running") {
+        if (isRunActive(taskId)) {
+          // 运行中实时生效：下一轮迭代起按新预算执行。
+          context.run = await setLiveBudget(taskId, iteration.budget)
+        } else if (context.run && context.run.status !== "running") {
           context.run.budget = iteration.budget
           context.run.updatedAt = nowIso()
           await writeRun(context.run)
@@ -310,6 +313,30 @@ export async function executeTaskAction(
         }
         return result(type, true, `模块「${moduleId}」的提示词已更新`)
       }
+      case "approve": {
+        const run = await approveCandidate(taskId)
+        context.run = run
+        return result(type, true, `已批准候选并继续运行（${run.id}）`)
+      }
+      case "reject": {
+        const run = await rejectCandidate(taskId)
+        context.run = run
+        return result(
+          type,
+          true,
+          `已否决候选并从候选池移除（${run.id}），运行保持暂停，可继续运行`
+        )
+      }
+      case "promote": {
+        const candidateId =
+          typeof action.candidateId === "string" ? action.candidateId.trim() : ""
+        if (!candidateId) {
+          throw new Error("promote 缺少 candidateId 参数")
+        }
+        const run = await promoteCandidate(taskId, candidateId)
+        context.run = run
+        return result(type, true, `已将候选 ${candidateId} 设为最佳候选`)
+      }
       case "note": {
         const note = typeof action.note === "string" ? action.note.trim() : ""
         if (!note) {
@@ -377,7 +404,7 @@ export async function chatWithOrchestratorStream(
 
   const [settings, run, history] = await Promise.all([
     readSettings(),
-    latestRunOf(task),
+    latestRunOf(taskId),
     readOrchestratorMessages(taskId, HISTORY_LIMIT),
   ])
 

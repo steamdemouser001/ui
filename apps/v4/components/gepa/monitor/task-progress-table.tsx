@@ -2,7 +2,6 @@ import Link from "next/link"
 import { ArrowRightIcon, ListTodoIcon } from "lucide-react"
 
 import type { TaskProgress } from "@/lib/gepa/monitor"
-import type { TaskStatus } from "@/lib/gepa/types"
 import { Badge } from "@/registry/new-york-v4/ui/badge"
 import { Button } from "@/registry/new-york-v4/ui/button"
 import {
@@ -30,57 +29,42 @@ import {
   TableRow,
 } from "@/registry/new-york-v4/ui/table"
 
+import { TaskStatusBadge } from "../tasks/status-badge"
 import { formatDateTime, formatNumber } from "./format"
 
-const STATUS_META: Record<
-  TaskStatus,
-  { label: string; className: string; dot: boolean }
-> = {
-  draft: {
-    label: "草稿",
-    className: "border-border bg-muted text-muted-foreground",
-    dot: false,
-  },
-  ready: {
-    label: "就绪",
-    className:
-      "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400",
-    dot: false,
-  },
-  running: {
-    label: "运行中",
-    className:
-      "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-    dot: true,
-  },
-  paused: {
-    label: "已暂停",
-    className:
-      "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
-    dot: false,
-  },
-  completed: {
-    label: "已完成",
-    className:
-      "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-    dot: false,
-  },
-  failed: {
-    label: "失败",
-    className: "border-destructive/30 bg-destructive/10 text-destructive",
-    dot: false,
-  },
-}
+const PAUSING_BADGE_CLASS =
+  "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
 
-function StatusBadge({ status }: { status: TaskStatus }) {
-  const meta = STATUS_META[status]
+function StatusCell({ task }: { task: TaskProgress }) {
   return (
-    <Badge variant="outline" className={meta.className}>
-      {meta.dot && (
-        <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-      )}
-      {meta.label}
-    </Badge>
+    <TableCell>
+      <div className="space-y-1.5">
+        <TaskStatusBadge status={task.status} />
+        {task.status === "running" && task.liveLabel && (
+          <div
+            className="flex items-center gap-1.5 text-xs text-muted-foreground"
+            title={task.liveLabel}
+          >
+            <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" />
+            <span className="truncate">{task.liveLabel}</span>
+          </div>
+        )}
+        {task.pausing && (
+          <Badge variant="outline" className={PAUSING_BADGE_CLASS}>
+            暂停中/停止中…
+          </Badge>
+        )}
+        {task.awaitingApproval && (
+          <Badge
+            variant="outline"
+            className={PAUSING_BADGE_CLASS}
+            title="存在等待人工审批的候选，请在任务详情处理"
+          >
+            待审批
+          </Badge>
+        )}
+      </div>
+    </TableCell>
   )
 }
 
@@ -96,9 +80,7 @@ function TaskRow({ task }: { task: TaskProgress }) {
         <div className="font-medium">{task.name}</div>
         <div className="font-mono text-xs text-muted-foreground">{task.id}</div>
       </TableCell>
-      <TableCell>
-        <StatusBadge status={task.status} />
-      </TableCell>
+      <StatusCell task={task} />
       <TableCell className="min-w-36">
         <div className="space-y-1">
           <div className="text-sm tabular-nums">

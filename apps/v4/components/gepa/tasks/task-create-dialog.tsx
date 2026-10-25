@@ -17,6 +17,7 @@ import {
 } from "@/registry/new-york-v4/ui/dialog"
 import { Input } from "@/registry/new-york-v4/ui/input"
 import { Label } from "@/registry/new-york-v4/ui/label"
+import { Switch } from "@/registry/new-york-v4/ui/switch"
 import { Textarea } from "@/registry/new-york-v4/ui/textarea"
 
 import { errorText } from "./format"
@@ -29,6 +30,7 @@ interface TaskFormState {
   budget: string
   minibatchSize: string
   maxIterations: string
+  humanApproval: boolean
 }
 
 const EMPTY_FORM: TaskFormState = {
@@ -39,6 +41,7 @@ const EMPTY_FORM: TaskFormState = {
   budget: "60",
   minibatchSize: "3",
   maxIterations: "20",
+  humanApproval: false,
 }
 
 function parseIntInRange(
@@ -81,6 +84,7 @@ export function TaskCreateDialog({
           budget: String(settings.iteration.budget),
           minibatchSize: String(settings.iteration.minibatchSize),
           maxIterations: String(settings.iteration.maxIterations),
+          humanApproval: settings.iteration.humanApproval === true,
         }))
       } catch {
         // 读取失败时保留内置默认值
@@ -132,7 +136,12 @@ export function TaskCreateDialog({
         description: form.description.trim(),
         prompt: form.prompt,
         datasetText: form.datasetText,
-        iteration: { budget, minibatchSize, maxIterations },
+        iteration: {
+          budget,
+          minibatchSize,
+          maxIterations,
+          ...(form.humanApproval ? { humanApproval: true } : {}),
+        },
       })
       toast.success(`任务「${data.task.name}」已创建`)
       setForm(EMPTY_FORM)
@@ -254,6 +263,23 @@ export function TaskCreateDialog({
                 }
               />
             </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+            <div className="space-y-0.5">
+              <Label htmlFor="task-human-approval">人工审批</Label>
+              <p className="text-xs text-muted-foreground">
+                接受的变异候选需人工批准后才进入候选池并继续。
+              </p>
+            </div>
+            <Switch
+              id="task-human-approval"
+              checked={form.humanApproval}
+              disabled={saving}
+              onCheckedChange={(checked) =>
+                update({ humanApproval: checked })
+              }
+            />
           </div>
 
           <DialogFooter>

@@ -53,13 +53,10 @@ export class WorkspacePolicyError extends Error {
 }
 
 /**
- * 将工作空间内的相对路径解析为绝对路径。
+ * 将基目录内的相对路径解析为绝对路径。
  * 拒绝绝对路径、盘符、UNC、~、空路径、`..` 与冒号（Windows 数据流）。
  */
-export function resolveWorkspaceFile(
-  taskId: string,
-  relativePath: string
-): string {
+function resolveFileInBase(base: string, relativePath: string): string {
   if (typeof relativePath !== "string") {
     throw new WorkspacePathError("文件路径必须是字符串")
   }
@@ -100,13 +97,23 @@ export function resolveWorkspaceFile(
     throw new WorkspacePathError("文件路径包含 Windows 保留名称")
   }
 
-  const base = filesPath(taskId)
   const target = path.resolve(base, ...segments)
   const relative = path.relative(base, target)
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new WorkspacePathError("文件路径必须位于任务工作空间内")
   }
   return target
+}
+
+/**
+ * 将工作空间内的相对路径解析为绝对路径。
+ * 拒绝绝对路径、盘符、UNC、~、空路径、`..` 与冒号（Windows 数据流）。
+ */
+export function resolveWorkspaceFile(
+  taskId: string,
+  relativePath: string
+): string {
+  return resolveFileInBase(filesPath(taskId), relativePath)
 }
 
 /**
@@ -146,13 +153,10 @@ async function assertRealPathInside(
 }
 
 /**
- * 递归列出工作空间文件。跳过 node_modules 与符号链接，
+ * 递归列出基目录下的文件。跳过 node_modules 与符号链接，
  * 最多 500 条、深度 5 层，按路径字典序返回。
  */
-export async function listWorkspaceFiles(
-  taskId: string
-): Promise<WorkspaceEntry[]> {
-  const base = filesPath(taskId)
+async function listFilesUnder(base: string): Promise<WorkspaceEntry[]> {
   const entries: WorkspaceEntry[] = []
 
   const walk = async (
@@ -211,13 +215,22 @@ export async function listWorkspaceFiles(
   return entries
 }
 
-/** 读取工作空间内的文本文件（≤512KB）。 */
-export async function readWorkspaceFile(
-  taskId: string,
+/**
+ * 递归列出工作空间文件。跳过 node_modules 与符号链接，
+ * 最多 500 条、深度 5 层，按路径字典序返回。
+ */
+export async function listWorkspaceFiles(
+  taskId: string
+): Promise<WorkspaceEntry[]> {
+  return listFilesUnder(filesPath(taskId))
+}
+
+/** 读取基目录内的文本文件（≤512KB），路径校验规则与工作空间一致。 */
+async function readTextFileUnder(
+  base: string,
   relativePath: string
 ): Promise<string> {
-  const base = filesPath(taskId)
-  const target = resolveWorkspaceFile(taskId, relativePath)
+  const target = resolveFileInBase(base, relativePath)
   await assertRealPathInside(base, target)
 
   let stat
@@ -240,6 +253,29 @@ export async function readWorkspaceFile(
     )
   }
   return fs.readFile(target, "utf8")
+}
+
+/** 读取工作空间内的文本文件（≤512KB）。 */
+export async function readWorkspaceFile(
+  taskId: string,
+  relativePath: string
+): Promise<string> {
+  return readTextFileUnder(filesPath(taskId), relativePath)
+}
+
+/** 只读浏览一次 rollout 的隔离工作副本：列出产物文件。 */
+export async function listRolloutFiles(
+  rolloutDir: string
+): Promise<WorkspaceEntry[]> {
+  return listFilesUnder(rolloutDir)
+}
+
+/** 只读浏览一次 rollout 的隔离工作副本：读取产物文件内容。 */
+export async function readRolloutFile(
+  rolloutDir: string,
+  relativePath: string
+): Promise<string> {
+  return readTextFileUnder(rolloutDir, relativePath)
 }
 
 /**

@@ -3,16 +3,23 @@
 import * as React from "react"
 import {
   BotIcon,
+  CheckIcon,
   Loader2Icon,
   MessageSquareIcon,
   SendIcon,
   SquareIcon,
   UserIcon,
+  XIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { apiStream, type SseEvent } from "@/lib/gepa/client"
-import type { OrchestratorMessage } from "@/lib/gepa/types"
+import { apiGet, apiPost, apiStream, type SseEvent } from "@/lib/gepa/client"
+import type { OrchestratorMessage, RunState } from "@/lib/gepa/types"
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/registry/new-york-v4/ui/alert"
 import { Badge } from "@/registry/new-york-v4/ui/badge"
 import { Button } from "@/registry/new-york-v4/ui/button"
 import {
@@ -25,11 +32,13 @@ import {
 import { Textarea } from "@/registry/new-york-v4/ui/textarea"
 
 import { ReasoningBlock } from "../chat/chat-message"
-import { actionLabel, errorText, formatClock } from "./format"
+import { actionLabel, errorText, formatClock, formatScore } from "./format"
 import {
   messageActions,
   type ActionResult,
   type OrchestratorResponse,
+  type PendingApproval,
+  type TaskDetailData,
 } from "./types"
 
 const QUICK_ACTIONS = [
@@ -42,6 +51,9 @@ const QUICK_ACTIONS = [
 ]
 
 const MAX_MESSAGE_LENGTH = 4000
+
+// 审批状态轮询间隔；父组件的 SSE 不下发 run，这里自行轻量拉取。
+const APPROVAL_POLL_MS = 3000
 
 interface LocalMessage extends OrchestratorMessage {
   reasoning?: string
@@ -157,8 +169,31 @@ export function OrchestratorTab({
   const [input, setInput] = React.useState("")
   const [sending, setSending] = React.useState(false)
   const [status, setStatus] = React.useState<string | null>(null)
+  const [pendingApproval, setPendingApproval] =
+    React.useState<PendingApproval | null>(null)
+  const [approvalBusy, setApprovalBusy] = React.useState<
+    "approve" | "reject" | null
+  >(null)
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const abortRef = React.useRef<AbortController | null>(null)
+
+  // 父组件不下发 run 快照，这里定期读取任务详情以感知待审批候选。
+  const loadPendingApproval = React.useCallback(async () => {
+    try {
+      const data = await apiGet<TaskDetailData>(`/api/gepa/tasks/${taskId}`)
+      setPendingApproval(data.run?.pendingApproval ?? null)
+    } catch {
+      // 读取失败时保留上次结果，不打断对话。
+    }
+  }, [taskId])
+
+  React.useEffect(() => {
+    void loadPendingApproval()
+    const timer = window.setInterval(() => {
+      void loadPendingApproval()
+    }, APPROVAL_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [loadPendingApproval])
 
   React.useEffect(() => {
     if (sending) return
@@ -332,6 +367,25 @@ export function OrchestratorTab({
     abortRef.current?.abort()
   }
 
+  async function handleApproval(action: "approve" | "reject") {
+    if (approvalBusy || !pendingApproval) return
+    setApprovalBusy(action)
+    try {
+      await apiPost<{ run: RunState }>(`/api/gepa/tasks/${taskId}/run`, {
+        action,
+      })
+      toast.success(
+        action === "approve" ? "已批准候选，运行将继续" : "已否决候选，运行保持暂停"
+      )
+      await loadPendingApproval()
+      await onRefresh()
+    } catch (error) {
+      toast.error(errorText(error, action === "approve" ? "批准失败" : "否决失败"))
+    } finally {
+      setApprovalBusy(null)
+    }
+  }
+
   return (
     <Card className="gap-4">
       <CardHeader>
@@ -356,6 +410,35 @@ export function OrchestratorTab({
               {action.label}
             </Button>
           ))}
+          {pendingApproval && (
+            <>
+              <Button
+                size="xs"
+                onClick={() => void handleApproval("approve")}
+                disabled={approvalBusy !== null || sending}
+              >
+                {approvalBusy === "approve" ? (
+                  <Loader2Icon className="animate-spin" />
+                ) : (
+                  <CheckIcon />
+                )}
+                批准候选
+              </Button>
+              <Button
+                variant="destructive"
+                size="xs"
+                onClick={() => void handleApproval("reject")}
+                disabled={approvalBusy !== null || sending}
+              >
+                {approvalBusy === "reject" ? (
+                  <Loader2Icon className="animate-spin" />
+                ) : (
+                  <XIcon />
+                )}
+                否决候选
+              </Button>
+            </>
+          )}
         </div>
 
         <div
@@ -389,6 +472,18 @@ export function OrchestratorTab({
         </div>
 
         <div className="space-y-2">
+          {pendingApproval && (
+            <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-300">
+              <AlertTitle>第 {pendingApproval.iteration} 轮候选等待审批</AlertTitle>
+              <AlertDescription className="text-amber-700 dark:text-amber-400">
+                候选 {pendingApproval.candidateId}（模块{" "}
+                {pendingApproval.moduleName}）得分{" "}
+                {formatScore(pendingApproval.beforeScore)} →{" "}
+                {formatScore(pendingApproval.afterScore)}
+                等待审批，批准后才会进入候选池并继续。
+              </AlertDescription>
+            </Alert>
+          )}
           <Textarea
             rows={2}
             value={input}

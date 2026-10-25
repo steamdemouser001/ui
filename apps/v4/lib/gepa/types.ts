@@ -63,6 +63,8 @@ export interface IterationDefaults {
   maxIterations: number
   moduleSelection: "round-robin" | "random"
   mergeEnabled: boolean
+  /** 接受变异候选前是否需要人工审批。 */
+  humanApproval?: boolean
 }
 
 export interface ToolConstraints {
@@ -175,6 +177,8 @@ export interface ExampleTrace {
   feedback: string
   steps: TraceStep[]
   error?: string
+  /** 本次 rollout 的隔离工作目录（Claude Code 模式）。 */
+  rolloutDir?: string
 }
 
 export interface Candidate {
@@ -212,10 +216,72 @@ export interface IterationRecord {
   beforeScore: number
   afterScore: number | null
   accepted: boolean
+  /** 人工审批结果（开启 humanApproval 时记录）。 */
+  humanDecision?: "approved" | "rejected"
   reflection?: string
   traces: ExampleTrace[]
   startedAt: string
   finishedAt?: string
+}
+
+/** 运行内实时进度：描述引擎当前正在做什么，供 UI 直播展示。 */
+export type RunPhase =
+  | "seed"
+  | "parent-rollout"
+  | "evaluation"
+  | "reflection"
+  | "child-rollout"
+  | "pareto-eval"
+  | "idle"
+
+export interface RunProgress {
+  phase: RunPhase
+  /** 人类可读的当前动作描述（中文）。 */
+  label: string
+  iteration: number
+  candidateId?: string
+  moduleId?: string
+  moduleName?: string
+  exampleId?: string
+  exampleIndex?: number
+  exampleTotal?: number
+  rolloutDir?: string
+  /** 最近一次观察到的工具调用名（Claude Code 模式）。 */
+  toolName?: string
+  startedAt: string
+}
+
+/** 等待人工审批的变异候选。 */
+export interface PendingApproval {
+  iteration: number
+  candidateId: string
+  moduleId: string
+  moduleName: string
+  parentCandidateId: string | null
+  beforeScore: number
+  afterScore: number
+  reflection: string
+  oldPrompt: string
+  newPrompt: string
+  createdAt: string
+}
+
+/** 运行事件：引擎通过进程内事件总线广播，SSE 转发给前端。 */
+export type RunEventType =
+  | "iteration-start"
+  | "iteration-end"
+  | "rollout-start"
+  | "tool-activity"
+  | "progress"
+  | "approval-requested"
+  | "approval-resolved"
+
+export interface RunEvent {
+  type: RunEventType
+  taskId: string
+  runId: string
+  at: string
+  data: Record<string, unknown>
 }
 
 export interface RunState {
@@ -239,6 +305,10 @@ export interface RunState {
   error?: string
   harness?: { kind: HarnessKind; model: string; claudeVersion?: string }
   totalCostUsd?: number
+  /** 迭代内实时进度；仅在运行中有意义。 */
+  progress?: RunProgress
+  /** 开启人工审批时，接受候选前的等待项。 */
+  pendingApproval?: PendingApproval
   control: { pauseRequested: boolean; stopRequested: boolean }
 }
 
@@ -271,11 +341,15 @@ export interface OrchestratorAction {
     | "setMinibatch"
     | "setIterationLimit"
     | "updateModulePrompt"
+    | "approve"
+    | "reject"
+    | "promote"
     | "note"
     | "createTask"
     | "deleteTask"
     | "updateTask"
   taskId?: string
+  candidateId?: string
   name?: string
   description?: string
   datasetText?: string

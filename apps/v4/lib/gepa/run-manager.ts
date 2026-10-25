@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto"
 
-import { runIteration, splitDataset } from "./engine"
+import {
+  computeParetoFrontier,
+  pickBestCandidate,
+  runIteration,
+  splitDataset,
+} from "./engine"
+import { emitRunEvent } from "./run-events"
 import {
   readRun,
   readSettings,
@@ -201,6 +207,7 @@ async function finishRun(
   }
   if (status === "completed" || status === "stopped") {
     run.finishedAt = run.finishedAt ?? nowIso()
+    run.progress = undefined
   }
   run.control = { pauseRequested: false, stopRequested: false }
   run.updatedAt = nowIso()
@@ -439,6 +446,9 @@ export async function stepRun(taskId: string): Promise<RunState> {
 
   const task = await requireTask(taskId)
   let run = task.runId ? await readRun(taskId, task.runId) : null
+  if (run?.pendingApproval) {
+    throw new Error("存在等待人工审批的候选，请先批准或否决")
+  }
   if (
     !run ||
     run.status === "completed" ||
@@ -471,6 +481,11 @@ export async function resumeRun(taskId: string): Promise<RunState> {
   }
   const run = await readRun(taskId, task.runId)
   if (!run) throw new Error(`找不到运行记录：${task.runId}`)
+  if (run.pendingApproval) {
+    throw new Error(
+      `存在等待人工审批的候选（${run.pendingApproval.candidateId}），请先批准或否决`
+    )
+  }
   if (run.status === "completed") {
     throw new Error("运行已完成，请开始新的运行")
   }
@@ -520,4 +535,146 @@ export async function getRunStatus(taskId: string): Promise<RunState | null> {
 /** 当前任务是否有活动运行（供任务页/监控页判断）。 */
 export function isRunActive(taskId: string): boolean {
   return activeRuns.has(taskId)
+}
+
+/** 读取任务的活动运行（含迭代内实时进度）；无活动运行时返回 null。 */
+export function getActiveRun(taskId: string): RunState | null {
+  return activeRuns.get(taskId)?.run ?? null
+}
+
+/** 全部活动运行（供监控页展示实时阶段）。 */
+export function getActiveRuns(): RunState[] {
+  return [...activeRuns.values()].map((entry) => entry.run)
+}
+
+/** 运行中实时调整预算：对活动运行立即生效，从下一轮迭代起按新预算执行。 */
+export async function setLiveBudget(
+  taskId: string,
+  budget: number
+): Promise<RunState> {
+  const active = activeRuns.get(taskId)
+  if (!active) {
+    throw new Error("该任务当前没有进行中的运行")
+  }
+  const next = Math.max(1, Math.trunc(budget))
+  active.run.budget = next
+  active.run.updatedAt = nowIso()
+  addLog(active.run, "info", `预算已实时调整为 ${next} 次 rollout`)
+  await writeRun(active.run)
+  return active.run
+}
+
+function emitApprovalResolved(
+  run: RunState,
+  decision: "approved" | "rejected"
+): void {
+  emitRunEvent({
+    type: "approval-resolved",
+    taskId: run.taskId,
+    runId: run.id,
+    at: nowIso(),
+    data: { candidateId: run.pendingApproval?.candidateId, decision },
+  })
+}
+
+/** 批准等待人工审批的候选：保留候选并自动继续运行。 */
+export async function approveCandidate(taskId: string): Promise<RunState> {
+  const active = activeRuns.get(taskId)
+  if (active) {
+    throw new Error("运行正在进行中，没有等待审批的候选")
+  }
+
+  const task = await requireTask(taskId)
+  const run = task.runId ? await readRun(taskId, task.runId) : null
+  if (!run) throw new Error("该任务还没有运行记录")
+  const pending = run.pendingApproval
+  if (!pending) throw new Error("当前没有等待审批的候选")
+
+  const record = run.iterations.find((item) => item.index === pending.iteration)
+  if (record) record.humanDecision = "approved"
+  run.pendingApproval = undefined
+  run.updatedAt = nowIso()
+  addLog(
+    run,
+    "success",
+    `已批准第 ${pending.iteration} 轮候选 ${pending.candidateId}，继续运行`
+  )
+  await writeRun(run)
+  emitApprovalResolved(run, "approved")
+
+  // 批准即继续：恢复后台循环（运行已因等待审批而暂停）。
+  if (run.status === "paused") {
+    return resumeRun(taskId)
+  }
+  await syncTask(task, run)
+  return run
+}
+
+/** 否决等待人工审批的候选：从候选池移除并重算帕累托前沿与最佳候选。 */
+export async function rejectCandidate(taskId: string): Promise<RunState> {
+  const active = activeRuns.get(taskId)
+  if (active) {
+    throw new Error("运行正在进行中，没有等待审批的候选")
+  }
+
+  const task = await requireTask(taskId)
+  const run = task.runId ? await readRun(taskId, task.runId) : null
+  if (!run) throw new Error("该任务还没有运行记录")
+  const pending = run.pendingApproval
+  if (!pending) throw new Error("当前没有等待审批的候选")
+
+  run.candidates = run.candidates.filter(
+    (candidate) => candidate.id !== pending.candidateId
+  )
+  run.paretoFrontier = computeParetoFrontier(run.candidates, run.paretoSplit)
+  const best = pickBestCandidate(run.candidates, run.paretoSplit)
+  run.bestCandidateId = best?.id ?? null
+  const record = run.iterations.find((item) => item.index === pending.iteration)
+  if (record) {
+    record.accepted = false
+    record.humanDecision = "rejected"
+  }
+  run.pendingApproval = undefined
+  run.updatedAt = nowIso()
+  addLog(
+    run,
+    "warning",
+    `已否决第 ${pending.iteration} 轮候选 ${pending.candidateId}，已从候选池移除；继续运行将基于既有候选重新反思`
+  )
+  await writeRun(run)
+  await syncTask(task, run)
+  emitApprovalResolved(run, "rejected")
+  return run
+}
+
+/** 将指定候选人工设为最佳（不改写分数，只改写选择结果）。 */
+export async function promoteCandidate(
+  taskId: string,
+  candidateId: string,
+  runId?: string
+): Promise<RunState> {
+  const active = activeRuns.get(taskId)
+  let run: RunState | null = active?.run ?? null
+  if (!run) {
+    const task = await requireTask(taskId)
+    const targetRunId = runId ?? task.runId
+    if (!targetRunId) throw new Error("该任务还没有运行记录")
+    run = await readRun(taskId, targetRunId)
+  }
+  if (!run) throw new Error("找不到运行记录")
+
+  const candidate = run.candidates.find((item) => item.id === candidateId)
+  if (!candidate) throw new Error(`找不到候选：${candidateId}`)
+
+  run.bestCandidateId = candidateId
+  run.updatedAt = nowIso()
+  addLog(
+    run,
+    "info",
+    `已人工将候选 ${candidateId} 设为最佳候选（平均分 ${candidate.averageScore.toFixed(3)}）`
+  )
+  await writeRun(run)
+  const task = await readTask(taskId)
+  if (task) await syncTask(task, run)
+  return run
 }
