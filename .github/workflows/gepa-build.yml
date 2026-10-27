@@ -64,30 +64,46 @@ jobs:
       # those links, which breaks that resolution after extraction on Windows
       # ("Cannot find module '@swc/helpers/...'"). pnpm's hidden hoisted store
       # (node_modules/.pnpm/node_modules) is resolvable from the bundle root by
-      # design, so copying its entries up to node_modules/ makes the flattened
-      # tree self-contained. Validated locally: server boots and serves after
-      # exactly this transform.
+      # design, so hoisting its entries up to node_modules/ makes the flattened
+      # tree self-contained.
+      #
+      # The store entries are symlinks whose targets are relative to
+      # .pnpm/node_modules, so a plain `cp -r` up one level leaves DANGLING links
+      # and the later `cp -rL` flatten aborts with "cannot stat". Materialize each
+      # entry as real files instead: drop the existing top-level entry, then copy
+      # with -L so the symlink chain is followed.
       - name: Materialize hoisted deps for symlink-free bundle
         working-directory: apps/v4/.next/standalone
         run: |
           set -euo pipefail
-          if [ -d node_modules/.pnpm/node_modules ]; then
-            cp -r node_modules/.pnpm/node_modules/* node_modules/
-            ls node_modules | wc -l
-          else
+          if [ ! -d node_modules/.pnpm/node_modules ]; then
             echo "no .pnpm hoisted store found" >&2
+            exit 1
           fi
+          count=0
+          for entry in node_modules/.pnpm/node_modules/*; do
+            [ -e "$entry" ] || continue
+            name="$(basename "$entry")"
+            rm -rf "node_modules/$name"
+            cp -aL "$entry" "node_modules/$name"
+            count=$((count + 1))
+          done
+          echo "materialized $count hoisted entries as real files"
+          ls node_modules | wc -l
 
-      # cp -rL flattens the pnpm symlink/hardlink farm into plain real files.
+      # cp -rL flattens the remaining pnpm symlink farm into plain real files.
       # Tarring the original tree with --dereference races with tar's link
       # bookkeeping ("File removed before we read it"), and re-extracted link
       # entries are useless on Windows anyway. Resolution from the flat copy
-      # works because the hoisted-deps copy above put every runtime package at
-      # node_modules top level (validated locally on Windows).
+      # works because the materialize step above put every runtime package at
+      # node_modules top level as real files.
       - name: Flatten bundle into real files
         working-directory: apps/v4
         run: |
           set -euo pipefail
+          # Defensive: remove any dangling symlinks (e.g. platform-specific
+          # optional deps missing on linux) so cp -L never aborts on them.
+          find .next/standalone -xtype l -print -delete
           rm -rf "$RUNNER_TEMP/v4-bundle"
           cp -rL .next/standalone "$RUNNER_TEMP/v4-bundle"
           if find "$RUNNER_TEMP/v4-bundle" -type l | grep -q .; then
